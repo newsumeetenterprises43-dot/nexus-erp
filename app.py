@@ -11,7 +11,7 @@ st.set_page_config(page_title="NEXUS ERP | Cloud WMS", layout="wide", page_icon=
 
 # DEFINING LOCATIONS
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
-SALESMEN = ["Owner", "Manager", "Salesman 1", "Salesman 2"] # Add your salesmen here
+SALESMEN = ["Owner", "Manager", "Salesman 1", "Salesman 2"]
 
 # OPENING BALANCE MAPPING
 OPENING_BAL_COLS = {
@@ -22,7 +22,6 @@ OPENING_BAL_COLS = {
 
 # --- HELPER: SAFE FLOAT & FORMATTING ---
 def safe_float(val):
-    """Converts any value to float without crashing."""
     try:
         if val is None or val == "": return 0.0
         clean_val = str(val).replace(",", "").strip()
@@ -39,16 +38,15 @@ def render_filtered_table(df, key_prefix):
     
     with st.expander("🔍 Filter & Search Data", expanded=False):
         c1, c2 = st.columns([1, 2])
-        filter_col = c1.selectbox(f"Filter Column ({key_prefix})", ["All"] + list(df.columns), key=f"filt_col_{key_prefix}")
+        filter_col = c1.selectbox(f"Filter Column", ["All"] + list(df.columns), key=f"filt_col_{key_prefix}")
         
         if filter_col != "All":
-            # Get unique values for dropdown if low cardinality, else text input
             unique_vals = df[filter_col].astype(str).unique()
             if len(unique_vals) < 20:
-                val = c2.selectbox(f"Select Value ({key_prefix})", unique_vals, key=f"filt_val_{key_prefix}")
+                val = c2.selectbox(f"Select Value", unique_vals, key=f"filt_val_{key_prefix}")
                 df_filtered = df[df[filter_col].astype(str) == val]
             else:
-                val = c2.text_input(f"Search Value ({key_prefix})", key=f"filt_txt_{key_prefix}")
+                val = c2.text_input(f"Search Value", key=f"filt_txt_{key_prefix}")
                 if val:
                     df_filtered = df[df[filter_col].astype(str).str.contains(val, case=False, na=False)]
                 else:
@@ -89,7 +87,6 @@ def check_login():
     return True
 
 # --- BACKEND FUNCTIONS ---
-
 def normalize_cols(df):
     if df.empty: return df
     corrections = {
@@ -113,7 +110,6 @@ def normalize_cols(df):
                 new_cols[c] = v; matched = True; break
     
     df = df.rename(columns=new_cols)
-    # Fill empty numeric cells with 0
     df = df.fillna(0) 
     return df
 
@@ -135,15 +131,13 @@ def save_entry(sheet_name, data_dict):
         headers = ws.row_values(1)
         
         # --- AUTO CREATE PRODUCT LOGIC ---
-        # If saving to Manufacturing or Purchase, ensure Product exists in 'Products' sheet
         if sheet_name in ["Purchase", "Manufacturing"] and "NSP Code" in data_dict:
-             ensure_product_exists(data_dict["NSP Code"], data_dict.get("Product Name", "Auto-Created"), data_dict.get("Selling Price", 0))
+             ensure_product_exists(data_dict["NSP Code"], data_dict.get("Product Name", "Auto-Created"), data_dict.get("Selling Price", 0), data_dict.get("Cost Price", 0))
 
         row_to_append = []
         for h in headers:
             val = ""
             h_clean = h.lower().replace(" ", "").strip()
-            # Find matching key in data_dict
             for k, v in data_dict.items():
                 if k.lower().replace(" ", "").strip() == h_clean:
                     val = str(v); break
@@ -154,21 +148,18 @@ def save_entry(sheet_name, data_dict):
         return True
     except Exception as e: st.error(f"Save Error: {e}"); return False
 
-def ensure_product_exists(code, name, sp):
+def ensure_product_exists(code, name, sp, cp):
     """Checks if product exists, if not, adds it to Products sheet."""
     try:
         df_p = load_data("Products")
-        if df_p.empty or code not in df_p['NSP Code'].astype(str).values:
-            # Formula Logic: If we only have SP, calculate CP. If we have neither, 0.
-            sp_float = safe_float(sp)
-            cp_float = sp_float / 3.3 if sp_float > 0 else 0
-            
+        # Check if code exists (convert to string for comparison)
+        if df_p.empty or str(code) not in df_p['NSP Code'].astype(str).values:
             save_entry("Products", {
                 "NSP Code": code, 
                 "Product Name": name, 
-                "Selling Price": sp_float, 
-                "Cost Price": cp_float,
-                "Op_Shop":0, "Op_Terrace":0, "Op_Godown":0 # Default 0
+                "Selling Price": sp, 
+                "Cost Price": cp,
+                "Op_Shop":0, "Op_Terrace":0, "Op_Godown":0 
             })
     except: pass
 
@@ -193,30 +184,25 @@ def get_inv():
     p = load_data("Products")
     if p.empty: return pd.DataFrame()
     
-    # Ensure all location columns exist and are float
     for loc in LOCATIONS:
         if loc not in p.columns: p[loc] = 0.0
         p[loc] = p[loc].apply(safe_float)
         
-    # Apply Opening Balances
     for loc, col_name in OPENING_BAL_COLS.items():
         if col_name in p.columns:
             p[loc] += p[col_name].apply(safe_float)
 
     p['Clean'] = p['NSP Code'].astype(str).str.strip().str.lower()
     
-    # Process Purchases
     pu = load_data("Purchase")
     if not pu.empty and 'Location' in pu.columns:
         pu['Clean'] = pu['NSP Code'].astype(str).str.strip().str.lower()
         pu['Qty'] = pu['Qty'].apply(safe_float)
-        # Group by code and location to speed up
         pu_grp = pu.groupby(['Clean', 'Location'])['Qty'].sum().reset_index()
         for i, row in pu_grp.iterrows():
             if row['Location'] in LOCATIONS:
                 p.loc[p['Clean']==row['Clean'], row['Location']] += row['Qty']
 
-    # Process Sales
     sa = load_data("Sales")
     if not sa.empty and 'Location' in sa.columns:
         sa['Clean'] = sa['NSP Code'].astype(str).str.strip().str.lower()
@@ -226,7 +212,6 @@ def get_inv():
             if row['Location'] in LOCATIONS:
                 p.loc[p['Clean']==row['Clean'], row['Location']] -= row['Qty']
 
-    # Process Transfers
     tr = load_data("Transfers")
     if not tr.empty:
         tr['Clean'] = tr['NSP Code'].astype(str).str.strip().str.lower()
@@ -238,11 +223,8 @@ def get_inv():
 
     p['Total Stock'] = p[LOCATIONS].sum(axis=1)
     
-    # --- PRICING FORMULA SYNC FOR DISPLAY ---
-    # Ensure SP/CP relationship holds if data is missing
-    # SP = 3 * (CP * 1.1)  => CP = SP / 3.3
+    # --- PRICING FORMULA SYNC ---
     if 'Selling Price' in p.columns and 'Cost Price' in p.columns:
-        # If CP is 0 but SP exists, fill CP
         mask_cp_0 = (p['Cost Price'].apply(safe_float) == 0) & (p['Selling Price'].apply(safe_float) > 0)
         p.loc[mask_cp_0, 'Cost Price'] = p.loc[mask_cp_0, 'Selling Price'].apply(safe_float) / 3.3
         
@@ -253,13 +235,11 @@ def render_invoice(data, bill_type="Non-GST"):
     rows = ""
     total = 0; gst_tot = 0
     is_gst = bill_type == "GST"
-    
     items = data.get('items', [])
     
     for i, x in enumerate(items):
         qty = safe_float(x.get('Qty',0)); rate = safe_float(x.get('Price',0)); disc = safe_float(x.get('Discount',0))
-        # Logic: Rate is the Sold At price. If you want to show MRP, you can, but typically invoice shows Sold Rate.
-        net_item = rate # Since 'Price' in cart is already the 'Sold At' price
+        net_item = rate 
         taxable = qty * net_item
         
         if is_gst:
@@ -287,6 +267,16 @@ def render_invoice(data, bill_type="Non-GST"):
 
 # --- MAIN APP ---
 if not check_login(): st.stop()
+
+# Print Preview Handler (Top of App)
+if 'print_data' in st.session_state:
+    st.markdown("### 🖨️ Print Preview")
+    render_invoice(st.session_state.print_data, st.session_state.print_data.get('bill_type', 'Non-GST'))
+    if st.button("❌ Close Preview", type="primary"): 
+        del st.session_state.print_data
+        st.rerun()
+    st.divider()
+
 if 'cart' not in st.session_state: st.session_state.cart = []
 
 with st.sidebar:
@@ -298,14 +288,19 @@ if menu == "Dashboard":
     st.title("📊 Business Dashboard")
     df = get_inv()
     if not df.empty:
+        # Reinstated Individual Location Metrics
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("📦 Unique Products", len(df))
-        c2.metric("🔢 Total Units", int(df['Total Stock'].sum()))
-        val = (df['Total Stock'] * df['Selling Price'].apply(safe_float)).sum()
-        c3.metric("💰 Stock Value", f"₹{val:,.0f}")
+        c1.metric("📦 Products", len(df))
+        c2.metric("🔢 Total Stock", int(df['Total Stock'].sum()))
+        c3.metric("🏠 Shop Stock", int(df['Shop'].sum()))
+        c4.metric("🏭 Godown Stock", int(df['Big Godown'].sum()))
         
         st.divider()
-        st.markdown("### ⚠️ Low Stock Alert (Shop < 3)")
+        val = (df['Total Stock'] * df['Selling Price'].apply(safe_float)).sum()
+        st.markdown(f"### 💰 Total Asset Value: ₹{val:,.0f}")
+        
+        st.divider()
+        st.markdown("### ⚠️ Low Stock Alert")
         low = df[df['Shop'] < 3][['NSP Code','Product Name','Shop','Big Godown']]
         render_filtered_table(low, "dash")
 
@@ -333,19 +328,13 @@ elif menu == "Sales":
                 av = it[loc_s]
                 mrp = safe_float(it.get('Selling Price', 0))
                 
-                st.info(f"Available: {av} | MRP (System): ₹{mrp}")
+                st.info(f"Available: {av} | MRP: ₹{mrp}")
                 
                 c1, c2, c3 = st.columns(3)
                 qty = c1.number_input("Qty", 1, max_value=int(av) if av>0 else 1)
-                
-                # --- AUTO DISCOUNT CALCULATION ---
-                # User enters "Sold At" price. Discount = MRP - Sold At
-                sold_at = c2.number_input("Sold At Price (Unit)", value=mrp)
-                
-                # Calculate discount automatically based on entry
+                sold_at = c2.number_input("Sold At Price", value=mrp)
                 calc_disc = mrp - sold_at
-                
-                st.caption(f"Calculated Discount: ₹{calc_disc:.2f} per unit")
+                st.caption(f"Discount: ₹{calc_disc:.2f}")
                 
                 if st.button("Add to Cart"):
                     if av >= qty:
@@ -392,33 +381,19 @@ elif menu == "Sales":
                     log_action("Sale", inv)
                     st.rerun()
 
-        if 'print_data' in st.session_state:
-            st.divider(); render_invoice(st.session_state.print_data, st.session_state.print_data['bill_type'])
-            if st.button("Close Preview"): del st.session_state.print_data; st.rerun()
-
     with t2:
         df_hist = load_data("Sales")
-        # Apply Universal Filter
         df_filtered = render_filtered_table(df_hist, "sales_hist")
         
         if not df_filtered.empty:
             st.divider()
-            st.markdown("### 🖨️ Reprint / Delete")
             sel_inv = st.selectbox("Select Invoice", df_filtered['Invoice No'].unique())
-            
             c1, c2 = st.columns(2)
-            if c1.button("Reprint Selected Invoice"):
-                # Reconstruct data for print
+            if c1.button("Reprint Invoice"):
                 inv_data = df_hist[df_hist['Invoice No'] == sel_inv]
                 if not inv_data.empty:
                     first = inv_data.iloc[0]
-                    items = []
-                    for i, row in inv_data.iterrows():
-                        items.append({
-                            "Product Name": row['Product Name'], "NSP Code": row['NSP Code'],
-                            "Qty": row['Qty'], "Price": row['Price'], "Discount": row.get('Discount', 0)
-                        })
-                    
+                    items = [{"Product Name": r['Product Name'], "NSP Code": r['NSP Code'],"Qty": r['Qty'], "Price": r['Price'], "Discount": r.get('Discount', 0)} for i, r in inv_data.iterrows()]
                     st.session_state.print_data = {
                         "inv": sel_inv, "cust": first['Customer Name'], "phone": first['Phone'],
                         "date": first['Date'], "items": items, "mode": first.get('Mode',''),
@@ -436,80 +411,70 @@ elif menu == "Purchase":
     t1, t2 = st.tabs(["New Entry", "History"])
     
     with t1:
-        # --- PRICING FORMULA SECTION ---
-        # SP = 3 * (CP + 10%) -> SP = 3 * CP * 1.1
-        # CP = SP / 3.3
+        # --- FIXED LOGIC: REMOVED st.form WRAPPER TO ALLOW CALCULATIONS ---
         
         if 'p_cp' not in st.session_state: st.session_state.p_cp = 0.0
         if 'p_sp' not in st.session_state: st.session_state.p_sp = 0.0
+        if 'last_edited' not in st.session_state: st.session_state.last_edited = None
 
-        def calc_prices():
-            # If CP changed, calc SP
-            if st.session_state.last_changed == 'cp':
-                st.session_state.p_sp = st.session_state.p_cp * 1.1 * 3
-            # If SP changed, calc CP
-            elif st.session_state.last_changed == 'sp':
-                st.session_state.p_cp = st.session_state.p_sp / 3.3
+        # Callbacks for bi-directional sync
+        def update_sp():
+            st.session_state.p_sp = st.session_state.p_cp * 1.1 * 3
+            st.session_state.last_edited = 'cp'
+            
+        def update_cp():
+            st.session_state.p_cp = st.session_state.p_sp / 3.3
+            st.session_state.last_edited = 'sp'
 
         st.markdown("### 🆕 Product / Restock")
         
-        with st.form("purchase_form"):
-            c1, c2 = st.columns(2)
-            code = c1.text_input("NSP Code (Existing or New)")
-            name = c2.text_input("Product Name (If New)")
+        # Section 1: Product Details (No Form here to allow interactivity)
+        c1, c2 = st.columns(2)
+        code = c1.text_input("NSP Code (Existing or New)")
+        name = c2.text_input("Product Name (If New)")
+        
+        c3, c4 = st.columns(2)
+        # The key=p_cp/p_sp binds these inputs to session state
+        cp_in = c3.number_input("Cost Price", key='p_cp', on_change=update_sp, step=1.0)
+        sp_in = c4.number_input("Selling Price (MRP)", key='p_sp', on_change=update_cp, step=1.0)
+        
+        st.caption("💡 Formula: SP = 3 * (CP + 10%). Modifying one updates the other.")
+        
+        c_l1, c_l2 = st.columns(2)
+        loc = c_l1.selectbox("Location", LOCATIONS)
+        qty = c_l2.number_input("Qty", 1)
+        
+        add_vendor_pay = st.checkbox("Add to Vendor Pending Payments?")
+        vendor_name = st.text_input("Vendor Name (if paying)")
+        
+        # Button manually handles the "Submit" logic
+        if st.button("💾 Save Purchase Entry", type="primary"):
+            d = datetime.now().strftime("%Y-%m-%d")
             
-            c3, c4 = st.columns(2)
-            # Use keys and on_change to handle the formula
-            cp_in = c3.number_input("Cost Price", key='p_cp', on_change=calc_prices)
-            # We need to manually set last_changed before the widget callback, 
-            # but Streamlit limits this. 
-            # Workaround: Check logic inside the save or use simplified manual override.
+            # 1. Update Product Master
+            save_entry("Products", {
+                "NSP Code": code, "Product Name": name, 
+                "Cost Price": st.session_state.p_cp, 
+                "Selling Price": st.session_state.p_sp
+            })
             
-            # SIMPLIFIED FORMULA UI (More stable in Streamlit):
-            # We will use value=... 
+            # 2. Add Purchase Entry
+            save_entry("Purchase", {
+                "NSP Code": code, "Date": d, "Qty": qty, 
+                "Location": loc, "Vendor Name": vendor_name,
+                "Cost Price": st.session_state.p_cp
+            })
             
-            st.info("💡 Formula: SP = 3 * (CP + 10%). You can manually override both.")
-            
-            c_p1, c_p2 = st.columns(2)
-            input_cp = c_p1.number_input("Cost Price")
-            
-            # Auto Calc Logic for Display
-            suggested_sp = input_cp * 1.1 * 3
-            input_sp = c_p2.number_input("Selling Price (MRP)", value=suggested_sp)
-            
-            c_l1, c_l2 = st.columns(2)
-            loc = c_l1.selectbox("Location", LOCATIONS)
-            qty = c_l2.number_input("Qty", 1)
-            
-            add_vendor_pay = st.checkbox("Add to Vendor Pending Payments?")
-            vendor_name = st.text_input("Vendor Name (if paying)")
-            
-            if st.form_submit_button("Save Purchase"):
-                d = datetime.now().strftime("%Y-%m-%d")
-                
-                # 1. Update Product Master (Auto Create / Update Price)
-                save_entry("Products", {
-                    "NSP Code": code, "Product Name": name, 
-                    "Cost Price": input_cp, "Selling Price": input_sp
+            # 3. Vendor Payment
+            if add_vendor_pay and vendor_name:
+                total_cost = st.session_state.p_cp * qty
+                save_entry("Vendor_Payments", {
+                    "Payment ID": f"PEND-{int(time.time())}", "Date": d,
+                    "Vendor Name": vendor_name, "Amount": total_cost,
+                    "Status": "Pending", "Notes": f"Purchase of {code}"
                 })
-                
-                # 2. Add Purchase Entry
-                save_entry("Purchase", {
-                    "NSP Code": code, "Date": d, "Qty": qty, 
-                    "Location": loc, "Vendor Name": vendor_name,
-                    "Cost Price": input_cp
-                })
-                
-                # 3. Vendor Payment (If checked)
-                if add_vendor_pay and vendor_name:
-                    total_cost = input_cp * qty
-                    save_entry("Vendor_Payments", {
-                        "Payment ID": f"PEND-{int(time.time())}", "Date": d,
-                        "Vendor Name": vendor_name, "Amount": total_cost,
-                        "Status": "Pending", "Notes": f"Purchase of {code}"
-                    })
-                
-                st.success("Saved!"); st.rerun()
+            
+            st.success("Saved Successfully!"); st.rerun()
 
     with t2:
         df_p = load_data("Purchase")
@@ -520,7 +485,6 @@ elif menu == "Quotations":
     t1, t2 = st.tabs(["New Quote", "History / Reprint"])
     
     with t1:
-        # (Similar to Sales logic but saving to Quotations)
         df = get_inv()
         if not df.empty:
             sel = st.selectbox("Item", df['Product Name'].unique(), index=None, key="q_sel")
@@ -529,10 +493,9 @@ elif menu == "Quotations":
                 with st.form("q_add"):
                     q = st.number_input("Qty",1)
                     p = st.number_input("Price", value=safe_float(it.get('Selling Price',0)))
-                    if st.form_submit_button("Add to Quote"):
+                    if st.form_submit_button("Add"):
                         st.session_state.cart.append({"NSP Code":it['NSP Code'],"Product Name":it['Product Name'],"Qty":q,"Price":p,"Total":q*p})
                         st.success("Added")
-        
         if st.session_state.cart:
             st.dataframe(pd.DataFrame(st.session_state.cart))
             if st.button("Clear Quote"): st.session_state.cart=[]
@@ -542,27 +505,20 @@ elif menu == "Quotations":
                     qid = f"Q-{int(time.time())}"; d=datetime.now().strftime("%Y-%m-%d")
                     for x in st.session_state.cart:
                         save_entry("Quotations", {"Quote ID":qid, "Date":d, "Customer Name":cust, "Phone":ph, "NSP Code":x['NSP Code'], "Product Name":x['Product Name'], "Qty":x['Qty'], "Price":x['Price'], "Total":x['Total']})
-                    
-                    st.session_state.print_data = {"inv":qid, "cust":cust, "phone":ph, "date":d, "items":st.session_state.cart, "bill_type":"Non-GST"} # Quote uses Estimate format
+                    st.session_state.print_data = {"inv":qid, "cust":cust, "phone":ph, "date":d, "items":st.session_state.cart, "bill_type":"Non-GST"} 
                     st.session_state.cart=[]; st.rerun()
-                    
-        if 'print_data' in st.session_state:
-            st.divider(); render_invoice(st.session_state.print_data, "Non-GST")
-            if st.button("Close"): del st.session_state.print_data; st.rerun()
-
     with t2:
         df_q = load_data("Quotations")
         render_filtered_table(df_q, "quote_hist")
-        
-        # Reprint Logic for Quotes
-        sel_q = st.selectbox("Reprint Quote ID", df_q['Quote ID'].unique()) if not df_q.empty else None
-        if sel_q and st.button("Reprint Quote"):
-             q_data = df_q[df_q['Quote ID'] == sel_q]
-             if not q_data.empty:
-                first = q_data.iloc[0]
-                items = [{"Product Name":r['Product Name'],"NSP Code":r['NSP Code'],"Qty":r['Qty'],"Price":r['Price'],"Discount":0} for i,r in q_data.iterrows()]
-                st.session_state.print_data = {"inv": sel_q, "cust": first['Customer Name'], "phone": first['Phone'], "date": first['Date'], "items": items, "bill_type": "Non-GST"}
-                st.rerun()
+        if not df_q.empty:
+            sel_q = st.selectbox("Reprint Quote ID", df_q['Quote ID'].unique())
+            if st.button("Reprint Quote"):
+                 q_data = df_q[df_q['Quote ID'] == sel_q]
+                 if not q_data.empty:
+                    first = q_data.iloc[0]
+                    items = [{"Product Name":r['Product Name'],"NSP Code":r['NSP Code'],"Qty":r['Qty'],"Price":r['Price'],"Discount":0} for i,r in q_data.iterrows()]
+                    st.session_state.print_data = {"inv": sel_q, "cust": first['Customer Name'], "phone": first['Phone'], "date": first['Date'], "items": items, "bill_type": "Non-GST"}
+                    st.rerun()
 
 elif menu == "Manufacturing":
     st.title("🏭 Manufacturing")
@@ -617,11 +573,3 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
-
-
-
-
-
-
-
-
