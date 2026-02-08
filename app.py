@@ -40,7 +40,7 @@ def connect_to_gsheet():
     creds_dict = st.secrets["gcp_service_account"]
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
-    return client.open("nexus_erp_db")
+    return client.open("NEW SUMEET ENTERPRISES LOGIN")
 
 USERS = {"owner": "admin123", "manager": "user123"}
 
@@ -497,6 +497,7 @@ elif menu == "Products":
 elif menu == "Logs":
     st.title("📜 Logs")
     st.dataframe(load_data("Logs"))
+
 
 
 
