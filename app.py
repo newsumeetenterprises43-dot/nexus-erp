@@ -49,14 +49,17 @@ def check_login():
 
 # --- BACKEND FUNCTIONS (GOOGLE SHEETS) ---
 
+# --- REPLACE THE OLD load_data WITH THIS ---
 @st.cache_data(ttl=10)
 def load_data(sheet_name):
     try:
         sh = connect_to_gsheet()
-        try: ws = sh.worksheet(sheet_name)
-        except: return pd.DataFrame()
+        ws = sh.worksheet(sheet_name)
         return pd.DataFrame(ws.get_all_records())
-    except: return pd.DataFrame()
+    except Exception as e:
+        # This will print the specific error on your screen
+        st.error(f"❌ Error loading '{sheet_name}': {e}")
+        return pd.DataFrame()
 
 def clear_cache():
     load_data.clear()
@@ -455,4 +458,5 @@ elif menu == "Products":
 
 elif menu == "Logs":
     st.title("System Logs")
+
     st.dataframe(load_data("Logs"))
