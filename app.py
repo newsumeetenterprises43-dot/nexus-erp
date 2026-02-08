@@ -7,29 +7,31 @@ from oauth2client.service_account import ServiceAccountCredentials
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="NEW SUMEET ENTERPRISES | Cloud WMS", layout="wide", page_icon="☁️")
+st.set_page_config(page_title="NEXUS ERP | Cloud WMS", layout="wide", page_icon="☁️")
 
 # DEFINING LOCATIONS
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
+
+# MAPPING: Location Name -> Opening Balance Column in Excel
+# This fixes the issue where code looked for "Op_Big" instead of "Op_Godown"
+OPENING_BAL_COLS = {
+    "Shop": "Op_Shop",
+    "Terrace Godown": "Op_Terrace",
+    "Big Godown": "Op_Godown"
+}
 
 # --- GOOGLE SHEETS CONNECTION ---
 @st.cache_resource
 def connect_to_gsheet():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Check if secrets exist in Streamlit Cloud
     if "gcp_service_account" not in st.secrets:
         st.error("❌ Secrets not found! Please check App Settings > Secrets.")
         st.stop()
     
-    # Load credentials directly from the TOML dictionary
     creds_dict = st.secrets["gcp_service_account"]
-    
-    # Create the Credentials object
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
-    
-    # Open the sheet
     return client.open("nexus_erp_db")
 
 # --- AUTHENTICATION ---
@@ -58,15 +60,13 @@ def check_login():
         return False
     return True
 
-# --- SMART DATA LOADER (CRITICAL FIX) ---
+# --- SMART DATA LOADER ---
 def normalize_cols(df):
     """
-    Automatically fixes column name mismatches from Excel import.
-    Example: 'Nsp code' -> 'NSP Code', 'units' -> 'Qty'
+    Automatically fixes column name mismatches.
     """
     if df.empty: return df
     
-    # MAPPING: { "messy name" : "Correct Name" }
     corrections = {
         "nsp code": "NSP Code", "nspcode": "NSP Code", "code": "NSP Code",
         "product name": "Product Name", "productname": "Product Name", "item": "Product Name",
@@ -75,15 +75,24 @@ def normalize_cols(df):
         "selling price": "Selling Price", "sp": "Selling Price", "mrp": "Selling Price",
         "vendor name": "Vendor Name", "vendor": "Vendor Name",
         "invoice no": "Invoice No", "inv": "Invoice No",
-        "location": "Location", "loc": "Location"
+        "location": "Location", "loc": "Location",
+        # Fixes for Opening Balance columns if named loosely
+        "op shop": "Op_Shop", "op_shop": "Op_Shop",
+        "op terrace": "Op_Terrace", "op_terrace": "Op_Terrace",
+        "op godown": "Op_Godown", "op_godown": "Op_Godown"
     }
     
     new_cols = {}
     for c in df.columns:
-        clean = str(c).lower().strip()
-        if clean in corrections:
-            new_cols[c] = corrections[clean]
-    
+        clean = str(c).lower().strip().replace("_", " ") # Treat "Op_Godown" and "Op Godown" same
+        # Check against corrections
+        matched = False
+        for k, v in corrections.items():
+            if k == clean or k == clean.replace(" ", ""):
+                new_cols[c] = v
+                matched = True
+                break
+        
     return df.rename(columns=new_cols)
 
 @st.cache_data(ttl=10)
@@ -94,7 +103,6 @@ def load_data(sheet_name):
         df = pd.DataFrame(ws.get_all_records())
         return normalize_cols(df)
     except Exception as e:
-        # Returns empty DF instead of crashing if sheet is missing cols
         return pd.DataFrame()
 
 def clear_cache():
@@ -105,14 +113,12 @@ def save_entry(sheet_name, data_dict):
         sh = connect_to_gsheet()
         try: ws = sh.worksheet(sheet_name)
         except: 
-            # Create sheet if missing
             ws = sh.add_worksheet(sheet_name, 100, 20)
             ws.append_row(list(data_dict.keys()))
             
         headers = ws.row_values(1)
         row_to_append = []
         
-        # Match data to headers intelligently
         for h in headers:
             val = ""
             h_clean = h.lower().replace(" ", "").strip()
@@ -130,14 +136,12 @@ def save_entry(sheet_name, data_dict):
         return False
 
 def update_bal(inv_no, amt_paid):
-    """Updates the Paid/Balance columns in Sales sheet"""
     try:
         sh = connect_to_gsheet()
         ws = sh.worksheet("Sales")
         cell = ws.find(str(inv_no))
         if cell:
             headers = ws.row_values(1)
-            # Find column indices (1-based for gspread)
             try: p_idx = next(i for i,h in enumerate(headers) if "Paid" in h) + 1
             except: return False
             try: b_idx = next(i for i,h in enumerate(headers) if "Balance" in h) + 1
@@ -162,35 +166,31 @@ def log_action(act, det):
         })
     except: pass
 
-# --- INVENTORY ENGINE (THE BRAIN) ---
+# --- INVENTORY ENGINE (FIXED) ---
 def get_inv():
     p = load_data("Products")
     if p.empty: return pd.DataFrame()
     
-    # Ensure 'NSP Code' exists
-    if 'NSP Code' not in p.columns:
-        return pd.DataFrame()
+    if 'NSP Code' not in p.columns: return pd.DataFrame()
 
     p['Clean'] = p['NSP Code'].astype(str).str.strip().str.lower()
     
-    # 1. Initialize Locations with Opening Balance
-    for loc in LOCATIONS:
-        col = f"Op_{loc.split()[0]}" # Op_Shop, Op_Terrace, Op_Godown
-        if col not in p.columns: p[col] = 0
-        p[loc] = pd.to_numeric(p[col], errors='coerce').fillna(0)
+    # 1. Initialize Locations with Opening Balance (FIXED MAPPING)
+    for loc, col_name in OPENING_BAL_COLS.items():
+        if col_name not in p.columns: p[col_name] = 0
+        p[loc] = pd.to_numeric(p[col_name], errors='coerce').fillna(0)
 
-    # 2. Add PURCHASES (filtered by Location)
+    # 2. Add PURCHASES
     pu = load_data("Purchase")
     if not pu.empty and 'Location' in pu.columns:
         pu['Clean'] = pu['NSP Code'].astype(str).str.strip().str.lower()
         pu['Qty'] = pd.to_numeric(pu['Qty'], errors='coerce').fillna(0)
         
-        # Iterate and sum
         for i, row in pu.iterrows():
             if row['Location'] in LOCATIONS:
                 p.loc[p['Clean']==row['Clean'], row['Location']] += row['Qty']
 
-    # 3. Subtract SALES (filtered by Location)
+    # 3. Subtract SALES
     sa = load_data("Sales")
     if not sa.empty and 'Location' in sa.columns:
         sa['Clean'] = sa['NSP Code'].astype(str).str.strip().str.lower()
@@ -211,10 +211,8 @@ def get_inv():
                 p.loc[p['Clean']==row['Clean'], row['From_Loc']] -= row['Qty']
                 p.loc[p['Clean']==row['Clean'], row['To_Loc']] += row['Qty']
 
-    # 5. Calculate Total
     p['Total Stock'] = p[LOCATIONS].sum(axis=1)
     
-    # 6. Fill Cost Price if missing
     if 'Selling Price' in p.columns:
         if 'Cost Price' not in p.columns: p['Cost Price'] = 0.0
         p['Cost Price'] = p.apply(lambda x: (float(x['Selling Price'])/3.3) if (pd.isna(x.get('Cost Price')) or x.get('Cost Price')==0) else x['Cost Price'], axis=1)
@@ -223,7 +221,6 @@ def get_inv():
 
 # --- HTML INVOICE ---
 def render_invoice(data, bill_type="Non-GST"):
-    # GST Logic
     if bill_type == "GST":
         rows = ""
         t_tax = 0; t_gst = 0
@@ -246,7 +243,6 @@ def render_invoice(data, bill_type="Non-GST"):
             <h3 style="text-align:right;">Total: {g_tot:,.2f}</h3>
         </div>
         """
-    # Non-GST Logic
     else:
         rows = ""
         t_amt = 0
@@ -278,7 +274,7 @@ if 'cart' not in st.session_state: st.session_state.cart = []
 
 with st.sidebar:
     st.title("⚡ NEXUS ERP")
-    st.caption("v43.0 Cloud | Multi-Location")
+    st.caption("v44.0 Cloud | Multi-Location Fixed")
     menu = st.radio("Navigation", ["Dashboard", "Sales", "Settle Bookings", "Purchase", "Stock Transfer", "Inventory", "Quotations", "Manufacturing", "Vendor Payments", "Products", "Logs"])
     if st.button("🔄 Refresh Data"): clear_cache(); st.rerun()
     if st.button("🔒 Logout"): st.session_state.authenticated = False; st.rerun()
@@ -308,7 +304,6 @@ elif menu == "Inventory":
     st.title("📦 Live Inventory")
     df = get_inv()
     if not df.empty:
-        # Reorder columns for clarity
         cols = ['NSP Code', 'Product Name', 'Total Stock', 'Shop', 'Terrace Godown', 'Big Godown', 'Selling Price']
         st.dataframe(df[cols], use_container_width=True)
 
@@ -532,5 +527,6 @@ elif menu == "Products":
 elif menu == "Logs":
     st.title("📜 System Logs")
     st.dataframe(load_data("Logs"), use_container_width=True)
+
 
 
