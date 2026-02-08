@@ -13,12 +13,30 @@ st.set_page_config(page_title="NEXUS ERP | Cloud WMS", layout="wide", page_icon=
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
 
 # --- GOOGLE SHEETS CONNECTION ---
+# --- UPDATED CONNECTION FUNCTION ---
+import json # Make sure this is imported at the top
+
 @st.cache_resource
 def connect_to_gsheet():
-    # Looks for secrets in Streamlit Cloud, or local secrets.toml
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+    
+    # Check if we are using the "String Block" method (The Easy Way)
+    if "gcp_service_account" in st.secrets and "json_file" in st.secrets["gcp_service_account"]:
+        # Parse the text block back into a dictionary
+        creds_dict = json.loads(st.secrets["gcp_service_account"]["json_file"])
+    
+    # Check if we are using the "Native TOML" method (The Hard Way)
+    elif "gcp_service_account" in st.secrets:
+        creds_dict = st.secrets["gcp_service_account"]
+        
+    else:
+        st.error("❌ Secrets Error: Could not find 'gcp_service_account' in secrets.")
+        st.stop()
+        
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
+    
+    # Return the specific sheet
     return client.open("nexus_erp_db")
 
 # --- AUTHENTICATION ---
@@ -460,3 +478,4 @@ elif menu == "Logs":
     st.title("System Logs")
 
     st.dataframe(load_data("Logs"))
+
