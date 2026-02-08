@@ -152,7 +152,7 @@ def ensure_product_exists(code, name, sp, cp):
     """Checks if product exists, if not, adds it to Products sheet."""
     try:
         df_p = load_data("Products")
-        # Check if code exists (convert to string for comparison)
+        # Check if code exists
         if df_p.empty or str(code) not in df_p['NSP Code'].astype(str).values:
             save_entry("Products", {
                 "NSP Code": code, 
@@ -183,6 +183,11 @@ def log_action(act, det):
 def get_inv():
     p = load_data("Products")
     if p.empty: return pd.DataFrame()
+    
+    # Force Numeric Types for Critical Columns
+    for col in ['Selling Price', 'Cost Price']:
+        if col in p.columns:
+            p[col] = p[col].apply(safe_float)
     
     for loc in LOCATIONS:
         if loc not in p.columns: p[loc] = 0.0
@@ -288,7 +293,6 @@ if menu == "Dashboard":
     st.title("📊 Business Dashboard")
     df = get_inv()
     if not df.empty:
-        # Reinstated Individual Location Metrics
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("📦 Products", len(df))
         c2.metric("🔢 Total Stock", int(df['Total Stock'].sum()))
@@ -326,7 +330,8 @@ elif menu == "Sales":
             if sel:
                 it = df[df['Search'] == sel].iloc[0]
                 av = it[loc_s]
-                mrp = safe_float(it.get('Selling Price', 0))
+                # FIX: Explicitly convert MRP to float to avoid 0 issue
+                mrp = safe_float(it['Selling Price'])
                 
                 st.info(f"Available: {av} | MRP: ₹{mrp}")
                 
@@ -411,70 +416,92 @@ elif menu == "Purchase":
     t1, t2 = st.tabs(["New Entry", "History"])
     
     with t1:
-        # --- FIXED LOGIC: REMOVED st.form WRAPPER TO ALLOW CALCULATIONS ---
+        # --- NEW MODE TOGGLE ---
+        mode = st.radio("Select Action", ["Restock Existing Product", "Register New Product"], horizontal=True)
         
+        # Session State for Pricing Logic
         if 'p_cp' not in st.session_state: st.session_state.p_cp = 0.0
         if 'p_sp' not in st.session_state: st.session_state.p_sp = 0.0
-        if 'last_edited' not in st.session_state: st.session_state.last_edited = None
 
-        # Callbacks for bi-directional sync
         def update_sp():
             st.session_state.p_sp = st.session_state.p_cp * 1.1 * 3
-            st.session_state.last_edited = 'cp'
             
         def update_cp():
             st.session_state.p_cp = st.session_state.p_sp / 3.3
-            st.session_state.last_edited = 'sp'
 
-        st.markdown("### 🆕 Product / Restock")
-        
-        # Section 1: Product Details (No Form here to allow interactivity)
-        c1, c2 = st.columns(2)
-        code = c1.text_input("NSP Code (Existing or New)")
-        name = c2.text_input("Product Name (If New)")
-        
-        c3, c4 = st.columns(2)
-        # The key=p_cp/p_sp binds these inputs to session state
-        cp_in = c3.number_input("Cost Price", key='p_cp', on_change=update_sp, step=1.0)
-        sp_in = c4.number_input("Selling Price (MRP)", key='p_sp', on_change=update_cp, step=1.0)
-        
-        st.caption("💡 Formula: SP = 3 * (CP + 10%). Modifying one updates the other.")
-        
-        c_l1, c_l2 = st.columns(2)
-        loc = c_l1.selectbox("Location", LOCATIONS)
-        qty = c_l2.number_input("Qty", 1)
-        
-        add_vendor_pay = st.checkbox("Add to Vendor Pending Payments?")
-        vendor_name = st.text_input("Vendor Name (if paying)")
-        
-        # Button manually handles the "Submit" logic
-        if st.button("💾 Save Purchase Entry", type="primary"):
-            d = datetime.now().strftime("%Y-%m-%d")
+        st.divider()
+
+        if mode == "Restock Existing Product":
+            df = get_inv()
+            if not df.empty:
+                sel_prod = st.selectbox("Select Product to Restock", df['Product Name'].unique())
+                if sel_prod:
+                    # Auto-Fill details from existing database
+                    curr_item = df[df['Product Name'] == sel_prod].iloc[0]
+                    
+                    c1, c2 = st.columns(2)
+                    p_code = c1.text_input("NSP Code", value=curr_item['NSP Code'], disabled=True)
+                    p_name = c2.text_input("Product Name", value=curr_item['Product Name'], disabled=True)
+                    
+                    c3, c4 = st.columns(2)
+                    # Pre-fill Cost & SP from DB
+                    db_cp = safe_float(curr_item.get('Cost Price', 0))
+                    db_sp = safe_float(curr_item.get('Selling Price', 0))
+                    
+                    # Allow user to update price if it changed
+                    input_cp = c3.number_input("Cost Price (Update if needed)", value=db_cp)
+                    input_sp = c4.number_input("Selling Price (Update if needed)", value=db_sp)
+                    
+                    c5, c6 = st.columns(2)
+                    loc = c5.selectbox("Location", LOCATIONS)
+                    qty = c6.number_input("Qty", 1)
+                    
+                    vendor_name = st.text_input("Vendor Name (Compulsory)")
+                    
+                    if st.button("Save Restock", type="primary"):
+                        if not vendor_name:
+                            st.error("⚠️ Vendor Name is Compulsory!")
+                        else:
+                            d = datetime.now().strftime("%Y-%m-%d")
+                            # Update Price in Master
+                            save_entry("Products", {"NSP Code": p_code, "Cost Price": input_cp, "Selling Price": input_sp})
+                            # Save Purchase
+                            save_entry("Purchase", {"NSP Code": p_code, "Date": d, "Qty": qty, "Location": loc, "Vendor Name": vendor_name, "Cost Price": input_cp})
+                            # Auto-Log Vendor Payment (Pending)
+                            save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": input_cp * qty, "Status": "Pending", "Notes": f"Restock {p_code}"})
+                            st.success("Restocked & Payment Pending Logged!"); st.rerun()
+
+        else: # Register New Product
+            c1, c2 = st.columns(2)
+            code = c1.text_input("New NSP Code")
+            name = c2.text_input("New Product Name")
             
-            # 1. Update Product Master
-            save_entry("Products", {
-                "NSP Code": code, "Product Name": name, 
-                "Cost Price": st.session_state.p_cp, 
-                "Selling Price": st.session_state.p_sp
-            })
+            c3, c4 = st.columns(2)
+            cp_in = c3.number_input("Cost Price", key='p_cp', on_change=update_sp, step=1.0)
+            sp_in = c4.number_input("Selling Price (MRP)", key='p_sp', on_change=update_cp, step=1.0)
             
-            # 2. Add Purchase Entry
-            save_entry("Purchase", {
-                "NSP Code": code, "Date": d, "Qty": qty, 
-                "Location": loc, "Vendor Name": vendor_name,
-                "Cost Price": st.session_state.p_cp
-            })
+            c_l1, c_l2 = st.columns(2)
+            loc = c_l1.selectbox("Location", LOCATIONS)
+            qty = c_l2.number_input("Qty", 1)
             
-            # 3. Vendor Payment
-            if add_vendor_pay and vendor_name:
-                total_cost = st.session_state.p_cp * qty
-                save_entry("Vendor_Payments", {
-                    "Payment ID": f"PEND-{int(time.time())}", "Date": d,
-                    "Vendor Name": vendor_name, "Amount": total_cost,
-                    "Status": "Pending", "Notes": f"Purchase of {code}"
-                })
+            vendor_name = st.text_input("Vendor Name (Compulsory)")
             
-            st.success("Saved Successfully!"); st.rerun()
+            if st.button("Register & Save Purchase", type="primary"):
+                if not vendor_name or not code or not name:
+                    st.error("⚠️ Vendor Name, Code and Product Name are Compulsory!")
+                else:
+                    d = datetime.now().strftime("%Y-%m-%d")
+                    
+                    # 1. Create Product
+                    save_entry("Products", {"NSP Code": code, "Product Name": name, "Cost Price": st.session_state.p_cp, "Selling Price": st.session_state.p_sp})
+                    
+                    # 2. Add Purchase
+                    save_entry("Purchase", {"NSP Code": code, "Date": d, "Qty": qty, "Location": loc, "Vendor Name": vendor_name, "Cost Price": st.session_state.p_cp})
+                    
+                    # 3. Vendor Payment
+                    save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": st.session_state.p_cp * qty, "Status": "Pending", "Notes": f"New: {code}"})
+                    
+                    st.success("New Product Registered & Stocked!"); st.rerun()
 
     with t2:
         df_p = load_data("Purchase")
@@ -573,3 +600,4 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
