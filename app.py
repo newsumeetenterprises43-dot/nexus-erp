@@ -40,14 +40,14 @@ def connect_to_gsheet():
     creds_dict = st.secrets["gcp_service_account"]
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
-    return client.open("NEW SUMEET ENTERPRISES LOGIN")
+    return client.open("nexus_erp_db")
 
 USERS = {"owner": "admin123", "manager": "user123"}
 
 def check_login():
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if not st.session_state.authenticated:
-        st.markdown("<h2 style='text-align:center;'>🔒 Nexus Cloud ERP</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center;'>🔒 NEW SUMEET ENTERPRISES LOGIN</h2>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
             with st.form("login_form"):
@@ -497,6 +497,7 @@ elif menu == "Products":
 elif menu == "Logs":
     st.title("📜 Logs")
     st.dataframe(load_data("Logs"))
+
 
 
 
