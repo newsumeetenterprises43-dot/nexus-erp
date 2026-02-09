@@ -110,7 +110,8 @@ def normalize_cols(df):
         "quote id": "Quote ID", "order no": "Order No", "payment id": "Payment ID",
         "salesman": "Salesman", "sales man": "Salesman",
         "status": "Status", "mode": "Mode",
-        "cust gst": "Customer GST", "gstin": "Customer GST"
+        "cust gst": "Customer GST", "gstin": "Customer GST",
+        "address": "Address", "cust address": "Address"
     }
     new_cols = {}
     for c in df.columns:
@@ -259,12 +260,16 @@ def get_inv():
     p.loc[mask_cp_0, 'Cost Price'] = p.loc[mask_cp_0, 'Selling Price'] / 3.3
     return p
 
-# --- HTML INVOICE ---
+# --- HTML INVOICE (SPACIOUS & CLEAN) ---
 def render_invoice(data, bill_type="Non-GST"):
     rows = ""
     total = 0; gst_tot = 0
     is_gst = bill_type == "GST"
     items = data.get('items', [])
+    
+    # CSS Styles for cleaner look
+    style_th = "border:1px solid #000; padding:8px; font-weight:bold; background-color:#f2f2f2;"
+    style_td = "border:1px solid #000; padding:8px; vertical-align:middle;"
     
     for i, x in enumerate(items):
         qty = safe_float(x.get('Qty',0)); rate = safe_float(x.get('Price',0)); disc = safe_float(x.get('Discount',0))
@@ -276,127 +281,135 @@ def render_invoice(data, bill_type="Non-GST"):
             total_line = taxable + gst_amt
             gst_tot += gst_amt
             total += total_line
-            # Added HSN (9403) and NSP Code columns
+            
             rows += f"""
             <tr>
-                <td>{i+1}</td>
-                <td style="text-align:left; padding-left:5px;">{x['Product Name']}</td>
-                <td>{x['NSP Code']}</td>
-                <td>9403</td>
-                <td>{qty}</td>
-                <td>{rate:,.2f}</td>
-                <td>{disc:,.2f}</td>
-                <td>{amount:,.2f}</td>
-                <td>{gst_amt/2:,.2f}</td>
-                <td>{gst_amt/2:,.2f}</td>
-                <td>{total_line:,.2f}</td>
+                <td style="{style_td} text-align:center;">{i+1}</td>
+                <td style="{style_td} text-align:left;">{x['Product Name']}</td>
+                <td style="{style_td} text-align:center;">{x['NSP Code']}</td>
+                <td style="{style_td} text-align:center;">9403</td>
+                <td style="{style_td} text-align:center;">{qty}</td>
+                <td style="{style_td} text-align:right;">{rate:,.2f}</td>
+                <td style="{style_td} text-align:right;">{disc:,.2f}</td>
+                <td style="{style_td} text-align:right;">{amount:,.2f}</td>
+                <td style="{style_td} text-align:right;">{gst_amt/2:,.2f}</td>
+                <td style="{style_td} text-align:right;">{gst_amt/2:,.2f}</td>
+                <td style="{style_td} text-align:right; font-weight:bold;">{total_line:,.2f}</td>
             </tr>"""
         else:
             total += amount
-            # Non-GST format (HSN not strictly required but kept NSP)
             rows += f"""
             <tr>
-                <td>{i+1}</td>
-                <td style="text-align:left; padding-left:5px;">{x['Product Name']}</td>
-                <td>{x['NSP Code']}</td>
-                <td>{qty}</td>
-                <td>{rate:,.2f}</td>
-                <td>{disc:,.2f}</td>
-                <td>{amount:,.2f}</td>
+                <td style="{style_td} text-align:center;">{i+1}</td>
+                <td style="{style_td} text-align:left;">{x['Product Name']}</td>
+                <td style="{style_td} text-align:center;">{x['NSP Code']}</td>
+                <td style="{style_td} text-align:center;">{qty}</td>
+                <td style="{style_td} text-align:right;">{rate:,.2f}</td>
+                <td style="{style_td} text-align:right;">{disc:,.2f}</td>
+                <td style="{style_td} text-align:right; font-weight:bold;">{amount:,.2f}</td>
             </tr>"""
 
-    for k in range(10 - len(items)):
-        rows += f"<tr><td>&nbsp;</td><td></td><td></td>{'<td></td>' if is_gst else ''}<td></td><td></td><td></td><td></td>{'<td></td><td></td><td></td>' if is_gst else ''}</tr>"
+    # Fill empty rows to maintain A4 height appearance
+    cols_count = 11 if is_gst else 7
+    for k in range(8 - len(items)):
+        rows += f"<tr>" + "".join([f"<td style='{style_td} color:white;'>.</td>" for _ in range(cols_count)]) + "</tr>"
 
     gst_section = ""
-    gst_cols_header = '<th>Taxable</th><th>CGST</th><th>SGST</th><th>Total</th>' if is_gst else ''
-    hsn_header = '<th>HSN</th>' if is_gst else ''
+    gst_header_cols = '<th style="'+style_th+' width:8%;">Taxable</th><th style="'+style_th+' width:7%;">CGST</th><th style="'+style_th+' width:7%;">SGST</th><th style="'+style_th+' width:10%;">Total</th>' if is_gst else ''
+    hsn_header = '<th style="'+style_th+' width:6%;">HSN</th>' if is_gst else ''
     
     if is_gst:
         gst_section = f"""
         <tr>
-            <td colspan="8" style="text-align:right;"><b>CGST (9%):</b></td>
-            <td colspan="3">{gst_tot/2:,.2f}</td>
+            <td colspan="8" style="text-align:right; padding:8px; border:1px solid #000;"><b>CGST (9%):</b></td>
+            <td colspan="3" style="text-align:right; padding:8px; border:1px solid #000;">{gst_tot/2:,.2f}</td>
         </tr>
         <tr>
-            <td colspan="8" style="text-align:right;"><b>SGST (9%):</b></td>
-            <td colspan="3">{gst_tot/2:,.2f}</td>
+            <td colspan="8" style="text-align:right; padding:8px; border:1px solid #000;"><b>SGST (9%):</b></td>
+            <td colspan="3" style="text-align:right; padding:8px; border:1px solid #000;">{gst_tot/2:,.2f}</td>
         </tr>
         """
     
     cust_gst_display = f"<br><b>GSTIN:</b> {data.get('cust_gst','')}" if data.get('cust_gst') else ""
+    address_display = f"<br><b>Address:</b> {data.get('address','')}" if data.get('address') else ""
 
     html = f"""
-    <div style="width:800px; padding:20px; font-family:Arial, sans-serif; border:1px solid #000; background:white; color:black;">
-        <div style="text-align:center;">
-            <h1 style="margin:0; color:#b30000;">SUMEET ENTERPRISES</h1>
-            <p style="margin:2px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, AURANGABAD-431001</p>
-            <p style="margin:2px; font-size:12px;"><b>PHONE:</b> 9890834344 | <b>EMAIL:</b> sumeet.enterprises44@gmail.com</p>
-            {f'<p style="margin:2px; font-size:12px;"><b>GSTIN:</b> 27AEGPC7645R1ZV</p>' if is_gst else ''}
-        </div>
-        <hr style="border-top: 2px solid #000;">
-        <h3 style="text-align:center; margin:5px;">{'TAX INVOICE' if is_gst else 'ESTIMATE'}</h3>
+    <div style="width:210mm; min-height:297mm; padding:30px; margin:auto; font-family:Helvetica, Arial, sans-serif; border:1px solid #ddd; background:white; color:black; box-sizing: border-box;">
         
-        <table style="width:100%; border-collapse:collapse; margin-bottom:10px; font-size:12px;">
-            <tr>
-                <td style="border:1px solid #000; padding:5px; width:60%;">
-                    <b>Customer Name:</b> {data['cust']}<br>
-                    <b>Phone:</b> {data['phone']}
-                    {cust_gst_display}
-                </td>
-                <td style="border:1px solid #000; padding:5px;">
-                    <b>Invoice No:</b> {data['inv']}<br>
-                    <b>Date:</b> {data['date']}<br>
-                    <b>Mode:</b> {data.get('mode','')}
-                </td>
-            </tr>
-        </table>
+        <div style="text-align:center; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:20px;">
+            <h1 style="margin:0; font-size:28px; color:#b30000; letter-spacing:1px;">SUMEET ENTERPRISES</h1>
+            <p style="margin:4px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, AURANGABAD-431001</p>
+            <p style="margin:4px; font-size:12px;"><b>PHONE:</b> 9890834344 | <b>EMAIL:</b> sumeet.enterprises44@gmail.com</p>
+            {f'<p style="margin:4px; font-size:12px;"><b>GSTIN:</b> 27AEGPC7645R1ZV</p>' if is_gst else ''}
+        </div>
+        
+        <h3 style="text-align:center; margin-bottom:20px; text-transform:uppercase; font-size:16px; border:1px solid #000; padding:5px; width:200px; margin-left:auto; margin-right:auto;">{'TAX INVOICE' if is_gst else 'ESTIMATE'}</h3>
+        
+        <div style="display:flex; justify-content:space-between; margin-bottom:20px; font-size:13px;">
+            <div style="width:58%; border:1px solid #000; padding:10px; line-height:1.6;">
+                <b style="font-size:14px; text-decoration:underline;">BILLED TO:</b><br>
+                <b>Name:</b> {data['cust']}<br>
+                <b>Phone:</b> {data['phone']}
+                {cust_gst_display}
+                {address_display}
+            </div>
+            <div style="width:38%; border:1px solid #000; padding:10px; line-height:1.6;">
+                <b>Invoice No:</b> {data['inv']}<br>
+                <b>Date:</b> {data['date']}<br>
+                <b>Mode:</b> {data.get('mode','')}<br>
+                <b>Salesman:</b> {data.get('salesman','')}
+            </div>
+        </div>
 
         <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px; border:1px solid #000;">
-            <tr style="background-color:#f0f0f0;">
-                <th style="border:1px solid #000; width:5%;">Sr.</th>
-                <th style="border:1px solid #000; width:35%;">Product Description</th>
-                <th style="border:1px solid #000;">NSP Code</th>
-                {hsn_header}
-                <th style="border:1px solid #000;">Qty</th>
-                <th style="border:1px solid #000;">Rate</th>
-                <th style="border:1px solid #000;">Disc</th>
-                {gst_cols_header}
-                <th style="border:1px solid #000;">Amount</th>
-            </tr>
-            {rows}
-            {gst_section}
-            <tr>
-                <td colspan="{10 if is_gst else 6}" style="text-align:right; border-top:2px solid #000; padding:5px;"><b>Grand Total:</b></td>
-                <td style="border-top:2px solid #000; padding:5px;"><b>{total:,.2f}</b></td>
-            </tr>
+            <thead>
+                <tr>
+                    <th style="{style_th} width:5%;">Sr.</th>
+                    <th style="{style_th} width:30%;">Description</th>
+                    <th style="{style_th} width:10%;">Code</th>
+                    {hsn_header}
+                    <th style="{style_th} width:7%;">Qty</th>
+                    <th style="{style_th} width:10%;">Rate</th>
+                    <th style="{style_th} width:8%;">Disc</th>
+                    {gst_header_cols}
+                    <th style="{style_th} width:12%;">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows}
+            </tbody>
+            <tfoot>
+                {gst_section}
+                <tr>
+                    <td colspan="{10 if is_gst else 6}" style="text-align:right; border-top:2px solid #000; padding:10px; font-size:14px;"><b>GRAND TOTAL:</b></td>
+                    <td style="border-top:2px solid #000; padding:10px; font-size:16px; font-weight:bold;">₹ {total:,.2f}</td>
+                </tr>
+            </tfoot>
         </table>
         
-        <div style="margin-top:10px; border:1px solid #000; padding:5px; font-size:11px;">
-            <div style="display:flex; justify-content:space-between;">
-                <div style="width:60%;">
-                    <b>Terms & Conditions:</b>
-                    <ol style="margin:0; padding-left:20px;">
-                        <li>Subject to Aurangabad jurisdiction only.</li>
-                        <li>Loading/Unloading/Transport charges extra.</li>
-                        <li>Once sold cannot be cancelled or returned.</li>
-                    </ol>
-                    <br>
-                    <b>Bank Details:</b><br>
-                    Bank: {BANK_DETAILS['Name']}<br>
-                    Acc: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']}<br>
-                    Branch: {BANK_DETAILS['Branch']}
-                </div>
-                <div style="width:35%; text-align:center; display:flex; flex-direction:column; justify-content:end;">
-                    <p><b>For SUMEET ENTERPRISES</b></p>
-                    <br><br><br>
-                    <p>Authorised Signatory</p>
-                </div>
+        <div style="margin-top:30px; display:flex; justify-content:space-between; font-size:11px;">
+            <div style="width:60%; border:1px solid #000; padding:10px;">
+                <b>TERMS & CONDITIONS:</b>
+                <ol style="margin:5px 0 10px 15px; padding:0;">
+                    <li>Subject to Aurangabad jurisdiction only.</li>
+                    <li>Loading/Unloading/Transport charges extra.</li>
+                    <li>Once sold cannot be cancelled or returned.</li>
+                </ol>
+                <hr>
+                <b>BANK DETAILS:</b><br>
+                Name: {BANK_DETAILS['Name']}<br>
+                Acc No: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']}<br>
+                Branch: {BANK_DETAILS['Branch']}
+            </div>
+            <div style="width:35%; border:1px solid #000; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
+                <p><b>For SUMEET ENTERPRISES</b></p>
+                <br><br><br>
+                <p style="border-top:1px dashed #000; display:inline-block; width:80%;">Authorised Signatory</p>
             </div>
         </div>
     </div>
     """
-    components.html(html, height=1000, scrolling=True)
+    components.html(html, height=1150, scrolling=True)
 
 # --- MAIN APP START ---
 if not check_login(): st.stop()
@@ -499,28 +512,31 @@ elif menu == "Sales":
                 st.markdown(f"### Total: ₹{gt:,.2f}")
                 
                 with st.form("checkout"):
+                    st.write("#### 📝 Customer Details")
                     c1, c2 = st.columns(2)
-                    cust = c1.text_input("Customer Name"); ph = c2.text_input("Phone")
+                    cust = c1.text_input("Customer Name")
+                    ph = c2.text_input("Phone")
                     
-                    # CUSTOMER GST INPUT
+                    # Address Field Added
+                    cust_addr = st.text_area("Customer Address (Optional)", height=68)
+                    
                     c_gst_1, c_gst_2 = st.columns(2)
                     cust_gst = c_gst_1.text_input("Customer GSTIN (Optional)")
                     mode = c_gst_2.selectbox("Mode", ["Cash","UPI942", "UPI03", "UPI681", "PHONEPE", "Card"])
                     
+                    st.write("#### 🧾 Invoice Details")
                     c3, c4 = st.columns(2)
-                    # INVOICE MANUAL OVERRIDE LOGIC
                     default_inv = f"INV-{st.session_state.inv_counter}"
                     inv_input = c3.text_input("Inv No (Edit to Override)", value=default_inv)
                     b_type = c4.radio("Bill Type", ["Non-GST", "GST"], horizontal=True)
                     
                     paid = st.number_input("Amount Paid Now", value=gt)
+                    st.caption("Use 'TAB' key to navigate. 'ENTER' will submit form.")
                     submitted = st.form_submit_button("💾 Save Bill")
                 
                 if submitted:
                     d = datetime.now().strftime("%Y-%m-%d")
                     bal = gt - paid
-                    
-                    # Use the invoice number from the input field (overridden or default)
                     final_inv = inv_input
                     
                     for x in st.session_state.cart:
@@ -529,13 +545,14 @@ elif menu == "Sales":
                             "NSP Code":x['NSP Code'], "Product Name":x['Product Name'],
                             "Qty":x['Qty'], "Price":x['Price'], "Discount":x['Discount'],
                             "Total":x['Total'], "Paid":paid, "Balance":bal, "Mode":mode, "Bill Type":b_type,
-                            "Location":x['Location'], "Salesman": salesman, "Customer GST": cust_gst
+                            "Location":x['Location'], "Salesman": salesman, "Customer GST": cust_gst,
+                            "Address": cust_addr
                         })
                     
                     st.session_state.print_data = {
                         "inv":final_inv, "cust":cust, "phone":ph, "date":d, "items":st.session_state.cart,
                         "total":gt, "paid":paid, "bal":bal, "mode":mode, "loc_source":loc_s, 
-                        "bill_type":b_type, "cust_gst": cust_gst
+                        "bill_type":b_type, "cust_gst": cust_gst, "address": cust_addr, "salesman": salesman
                     }
                     st.session_state.cart = []
                     log_action("Sale", final_inv)
@@ -557,7 +574,8 @@ elif menu == "Sales":
                     st.session_state.print_data = {
                         "inv": sel_inv, "cust": first['Customer Name'], "phone": first['Phone'],
                         "date": first['Date'], "items": items, "mode": first.get('Mode',''),
-                        "bill_type": first.get('Bill Type', 'Non-GST'), "cust_gst": first.get('Customer GST', '')
+                        "bill_type": first.get('Bill Type', 'Non-GST'), "cust_gst": first.get('Customer GST', ''),
+                        "address": first.get('Address', ''), "salesman": first.get('Salesman', '')
                     }
                     st.rerun()
             
@@ -673,10 +691,8 @@ elif menu == "Purchase":
 
     with t2:
         df_p = load_data("Purchase")
-        # ENHANCED PURCHASE HISTORY: Merge with Products to get Names
         df_prods = load_data("Products")
         if not df_p.empty and not df_prods.empty:
-            # Merge to get Product Name and Selling Price/Cost Price into Purchase History
             df_merged = pd.merge(df_p, df_prods[['NSP Code', 'Product Name', 'Selling Price', 'Cost Price']], on='NSP Code', how='left')
             render_filtered_table(df_merged, "purch")
         else:
@@ -805,6 +821,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
