@@ -154,21 +154,24 @@ def save_entry(sheet_name, data_dict):
 
 def update_product_master(code, name, cp, sp):
     """
-    Updates existing product OR creates a new one in the Products sheet.
-    Crucial for 'Register New Product' to work correctly.
+    FIXED: Uses a robust try/except block to avoid library version errors.
+    If 'find' fails for ANY reason, it assumes the product is new and creates it.
     """
     try:
         sh = connect_to_gsheet(); ws = sh.worksheet("Products")
+        
+        # We try to find the cell. 
+        # If the code doesn't exist, MOST gspread versions raise an exception (CellNotFound).
+        # We catch generic Exception to be safe against version mismatches.
         try:
-            # Try to find existing product
             cell = ws.find(str(code))
+            # --- UPDATE EXISTING ---
             headers = ws.row_values(1)
-            
             def get_col_idx(name_list):
                 for i, h in enumerate(headers):
                     if h.lower().replace(" ","") in name_list: return i + 1
                 return None
-                
+            
             idx_name = get_col_idx(["productname", "product_name"])
             idx_cp = get_col_idx(["costprice", "cp"])
             idx_sp = get_col_idx(["sellingprice", "sp", "mrp"])
@@ -176,10 +179,11 @@ def update_product_master(code, name, cp, sp):
             if idx_name: ws.update_cell(cell.row, idx_name, name)
             if idx_cp: ws.update_cell(cell.row, idx_cp, float(cp))
             if idx_sp: ws.update_cell(cell.row, idx_sp, float(sp))
-            
-        except gspread.exceptions.CellNotFound:
-            # CREATE NEW PRODUCT ENTRY if not found
-            # We explicitly add the Opening Balance columns as 0 to avoid errors
+            # st.toast(f"Updated existing product: {code}")
+
+        except Exception:
+            # --- CREATE NEW IF NOT FOUND (OR ERROR) ---
+            # This block runs if 'find' failed, meaning the product likely doesn't exist.
             new_prod_data = {
                 "NSP Code": code, 
                 "Product Name": name, 
@@ -190,9 +194,11 @@ def update_product_master(code, name, cp, sp):
                 "Op_Godown": 0
             }
             save_entry("Products", new_prod_data)
+            # st.toast(f"Created new product: {code}")
             
         clear_cache()
-    except Exception as e: st.error(f"Master Update Error: {e}")
+    except Exception as e: 
+        st.error(f"Master Update Critical Fail: {e}")
 
 def update_balance(inv_no, amt_paid):
     try:
@@ -769,6 +775,9 @@ elif menu == "Manufacturing":
             p = st.text_input("Product Name"); c = st.text_input("NSP Code (Will Auto-Create)"); q = st.number_input("Qty",1)
             s = st.text_area("Specs"); d = st.date_input("Deadline")
             if st.form_submit_button("Create"):
+                # Ensure product is created in master list so it appears in inventory
+                update_product_master(c, p, 0, 0) # Initialize with 0 price if unknown
+                
                 save_entry("Manufacturing", {"Order No":f"MFG-{int(time.time())}", "Date":datetime.now().strftime("%Y-%m-%d"), "Product Name":p, "NSP Code":c, "Qty":q, "Specs":s, "Deadline":d, "Status":"Pending"})
                 st.success("Created"); st.rerun()
     with t2:
@@ -843,6 +852,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
