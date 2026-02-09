@@ -7,7 +7,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="NEXUS ERP | Cloud WMS", layout="wide", page_icon="☁️")
+st.set_page_config(page_title="NEW SUMEET ENTERPRISES", layout="wide", page_icon="☁️")
 
 # DEFINING LOCATIONS & DATA
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
@@ -79,7 +79,7 @@ USERS = {"owner": "admin123", "manager": "user123"}
 def check_login():
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if not st.session_state.authenticated:
-        st.markdown("<h2 style='text-align:center;'>🔒 Nexus Cloud ERP</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center;'>🔒 NEW SUMEET ENTERPRISES SOFTWARE LOGIN</h2>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
             with st.form("login_form"):
@@ -356,7 +356,7 @@ def render_invoice(data, bill_type="Non-GST"):
         
         <div style="text-align:center; padding:15px; border-bottom:1px solid #000;">
             <h1 style="margin:0; font-size:26px; color:#b30000; font-weight:bold;">SUMEET ENTERPRISES</h1>
-            <p style="margin:2px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, AURANGABAD-431001</p>
+            <p style="margin:2px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, CH. SAMBHAJINAGAR-431001</p>
             <p style="margin:2px; font-size:12px;"><b>PHONE:</b> 9890834344 | <b>EMAIL:</b> sumeet.enterprises44@gmail.com</p>
             {f'<p style="margin:2px; font-size:12px;"><b>GSTIN:</b> 27AEGPC7645R1ZV</p>' if is_gst else ''}
         </div>
@@ -428,10 +428,12 @@ def render_invoice(data, bill_type="Non-GST"):
             <div style="width:65%; padding:10px; border-right:1px solid #000;">
                 <b>TERMS & CONDITIONS:</b>
                 <ol style="margin:5px 0 0 15px; padding:0;">
-                    <li>Subject to Aurangabad jurisdiction only.</li>
+                    <li>Subject to CH. sambhajinagr jurisdiction only.</li>
                     <li>Goods once sold will not be taken back.</li>
                     <li>Interest @ 24% p.a. charged if bill not paid on due date.</li>
-                </ol>
+                    <li>Company doesnt provide any guarantee, therefore we don't provide any guarantee too.</li>
+                    <li>After booking goods should be taken within 10 days, complains won't be entertained later</li>
+                </
                 {bank_html}
             </div>
             <div style="width:35%; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
@@ -803,6 +805,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
