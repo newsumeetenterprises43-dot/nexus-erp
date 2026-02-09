@@ -7,7 +7,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="NEXUS ERP | Cloud WMS", layout="wide", page_icon="☁️")
+st.set_page_config(page_title="NEW SUMEET ENTERPRISES", layout="wide", page_icon="☁️")
 
 # DEFINING LOCATIONS & DATA
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
@@ -448,7 +448,7 @@ if not check_login(): st.stop()
 
 # --- SIDEBAR (Must be first to preserve state) ---
 with st.sidebar:
-    st.title("⚡ NEXUS ERP")
+    st.title("⚡ NEW SUMEET ENTERPRISES")
     menu = st.radio("Navigation", ["Dashboard", "Sales", "Settle Balance", "Purchase", "Stock Transfer", "Inventory", "Quotations", "Manufacturing", "Vendor Payments", "Products", "Logs"])
     st.divider()
     if st.button("🔄 Refresh Data"): clear_cache(); st.rerun()
@@ -876,6 +876,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
