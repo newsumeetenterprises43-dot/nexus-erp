@@ -400,7 +400,7 @@ elif menu == "Sales":
                 c1, c2 = st.columns(2)
                 cust = c1.text_input("Customer Name"); ph = c2.text_input("Phone")
                 c3, c4 = st.columns(2)
-                mode = c3.selectbox("Mode", ["Cash","UPI942", "UPI03", "UPI681"]); inv = c4.text_input("Inv No", value=f"INV-{int(time.time())}")
+                mode = c3.selectbox("Mode", ["Cash","UPI942", "UPI03", "UPI681", "PHONEPE"]); inv = c4.text_input("Inv No", value=f"INV-{int(time.time())}")
                 paid = st.number_input("Amount Paid", value=gt)
                 b_type = st.radio("Bill Type", ["Non-GST", "GST"], horizontal=True)
                 
@@ -629,6 +629,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
