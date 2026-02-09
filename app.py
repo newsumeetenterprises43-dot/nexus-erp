@@ -11,7 +11,15 @@ st.set_page_config(page_title="NEXUS ERP | Cloud WMS", layout="wide", page_icon=
 
 # DEFINING LOCATIONS & DATA
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
-SALESMEN = ["Owner", "NISHIKANT", "MAYUR", "JADHAV SIR", "MASKE SIR", "LAUTE SIR", "ABDUL BHAI", "PRALHAD", "GONDIKAR SIR" ]
+SALESMEN = ["Owner", "NISHIKANT", "MAYUR", "JADHAV SIR", "MASKE SIR", "LAUTE SIR", "ABDUL BHAI", "PRALHAD", "GONDIKAR SIR"]
+
+# BANK DETAILS (For Invoice)
+BANK_DETAILS = {
+    "Name": "Bank of India",
+    "Account": "068230110000003",
+    "IFSC": "BKID0000682",
+    "Branch": "Garkheda Aurangabad"
+}
 
 # OPENING BALANCE MAPPING
 OPENING_BAL_COLS = {
@@ -28,6 +36,12 @@ def safe_float(val):
         return float(clean_val)
     except:
         return 0.0
+
+def num_to_words(num):
+    # Basic implementation or placeholder. 
+    # For a full implementation, a library like num2words is ideal, 
+    # but here is a simple text return to avoid external dependencies if not installed.
+    return f"{int(num)} (Amount in Words)"
 
 # --- UNIVERSAL SLICER/FILTER ---
 def render_filtered_table(df, key_prefix):
@@ -158,11 +172,8 @@ def update_product_master(code, name, cp, sp):
         sh = connect_to_gsheet(); ws = sh.worksheet("Products")
         try:
             cell = ws.find(str(code))
-            # Update Existing
-            # We need column indices for Name, CP, SP
             headers = ws.row_values(1)
             
-            # Helper to find col index (1-based)
             def get_col_idx(name_list):
                 for i, h in enumerate(headers):
                     if h.lower().replace(" ","") in name_list: return i + 1
@@ -177,11 +188,60 @@ def update_product_master(code, name, cp, sp):
             if idx_sp: ws.update_cell(cell.row, idx_sp, float(sp))
             
         except gspread.exceptions.CellNotFound:
-            # Create New
             save_entry("Products", {"NSP Code": code, "Product Name": name, "Cost Price": cp, "Selling Price": sp})
             
         clear_cache()
     except Exception as e: st.error(f"Master Update Error: {e}")
+
+def update_balance(inv_no, amt_paid):
+    """Updates the Paid and Balance columns in Sales sheet."""
+    try:
+        sh = connect_to_gsheet(); ws = sh.worksheet("Sales")
+        # Find all rows with this invoice number (could be multiple items)
+        # However, balance is usually tracked per invoice. 
+        # Simplified: Update all rows for that Invoice? No, that duplicates payment.
+        # Correct logic: Find the first row of the invoice, update Paid/Balance.
+        # Or better: Spread the payment across items? 
+        # Standard GSheet DB Approach: Find rows, update Paid column.
+        
+        cell = ws.find(str(inv_no))
+        if cell:
+            # We iterate to find all rows of this invoice
+            data = ws.get_all_records()
+            # This is slow for large DB. 
+            # Optimization: We just assume we update the 'Paid' and 'Balance' columns for the rows.
+            
+            headers = ws.row_values(1)
+            idx_inv = headers.index("Invoice No") + 1
+            try: idx_paid = headers.index("Paid") + 1
+            except: idx_paid = -1
+            try: idx_bal = headers.index("Balance") + 1
+            except: idx_bal = -1
+
+            if idx_paid == -1 or idx_bal == -1: return False
+
+            # Find all cells with invoice number
+            cell_list = ws.findall(str(inv_no))
+            
+            for cell in cell_list:
+                # Get current values
+                curr_paid = safe_float(ws.cell(cell.row, idx_paid).value)
+                curr_bal = safe_float(ws.cell(cell.row, idx_bal).value)
+                
+                # Update
+                new_paid = curr_paid + amt_paid
+                new_bal = curr_bal - amt_paid
+                
+                ws.update_cell(cell.row, idx_paid, new_paid)
+                ws.update_cell(cell.row, idx_bal, new_bal)
+            
+            clear_cache()
+            return True
+        else:
+            return False
+    except Exception as e:
+        st.error(f"Update Error: {e}")
+        return False
 
 def delete_entry(sheet_name, id_col, id_val):
     try:
@@ -199,51 +259,37 @@ def log_action(act, det):
         save_entry("Logs", {"Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "User": st.session_state.get('user','Admin'), "Action": act, "Details": det})
     except: pass
 
-# --- INVENTORY ENGINE (REBUILT) ---
+# --- INVENTORY ENGINE ---
 def get_inv():
-    # 1. Load Master Product List (The Anchor)
     p = load_data("Products")
     if p.empty: return pd.DataFrame()
     
-    # Ensure critical columns exist and are numeric
     p['Selling Price'] = p.get('Selling Price', 0).apply(safe_float)
     p['Cost Price'] = p.get('Cost Price', 0).apply(safe_float)
     p['Clean'] = p['NSP Code'].astype(str).str.strip().str.lower()
     
-    # Initialize Location Columns
-    for loc in LOCATIONS:
-        p[loc] = 0.0
-    
-    # 2. Add Opening Balances
+    for loc in LOCATIONS: p[loc] = 0.0
     for loc, col_name in OPENING_BAL_COLS.items():
-        if col_name in p.columns:
-            p[loc] += p[col_name].apply(safe_float)
+        if col_name in p.columns: p[loc] += p[col_name].apply(safe_float)
 
-    # 3. Add Purchases
     pu = load_data("Purchase")
     if not pu.empty and 'Location' in pu.columns:
         pu['Clean'] = pu['NSP Code'].astype(str).str.strip().str.lower()
         pu['Qty'] = pu['Qty'].apply(safe_float)
-        # Group by code/loc
         pu_grp = pu.groupby(['Clean', 'Location'])['Qty'].sum().reset_index()
-        
-        # Merge manually to preserve Master rows
         for i, row in pu_grp.iterrows():
             if row['Location'] in LOCATIONS:
                 p.loc[p['Clean'] == row['Clean'], row['Location']] += row['Qty']
 
-    # 4. Subtract Sales
     sa = load_data("Sales")
     if not sa.empty and 'Location' in sa.columns:
         sa['Clean'] = sa['NSP Code'].astype(str).str.strip().str.lower()
         sa['Qty'] = sa['Qty'].apply(safe_float)
         sa_grp = sa.groupby(['Clean', 'Location'])['Qty'].sum().reset_index()
-        
         for i, row in sa_grp.iterrows():
             if row['Location'] in LOCATIONS:
                 p.loc[p['Clean'] == row['Clean'], row['Location']] -= row['Qty']
 
-    # 5. Handle Transfers
     tr = load_data("Transfers")
     if not tr.empty:
         tr['Clean'] = tr['NSP Code'].astype(str).str.strip().str.lower()
@@ -255,13 +301,12 @@ def get_inv():
 
     p['Total Stock'] = p[LOCATIONS].sum(axis=1)
     
-    # 6. Fallback: If Cost Price is 0, estimate from Selling Price
     mask_cp_0 = (p['Cost Price'] == 0) & (p['Selling Price'] > 0)
     p.loc[mask_cp_0, 'Cost Price'] = p.loc[mask_cp_0, 'Selling Price'] / 3.3
     
     return p
 
-# --- HTML INVOICE ---
+# --- HTML INVOICE (REBUILT FOR A4) ---
 def render_invoice(data, bill_type="Non-GST"):
     rows = ""
     total = 0; gst_tot = 0
@@ -270,56 +315,148 @@ def render_invoice(data, bill_type="Non-GST"):
     
     for i, x in enumerate(items):
         qty = safe_float(x.get('Qty',0)); rate = safe_float(x.get('Price',0)); disc = safe_float(x.get('Discount',0))
-        # Net Price is 'Sold At' price (Price - Discount is wrong if Price is already Sold At)
-        # In our logic: 'Price' = Sold At. 'Discount' = MRP - Sold At (Just for info)
-        # So Taxable = Qty * Sold At
+        # Amount = (Rate * Qty) - (Disc * Qty) if Disc is per unit, or just total
+        # In this logic: Rate is sold price.
+        amount = qty * rate
         
-        taxable = qty * rate
+        # HSN column for GST
+        hsn_td = f"<td>{x.get('NSP Code','')}</td>" if is_gst else ""
         
         if is_gst:
-            gst = taxable * 0.18; line_tot = taxable + gst
-            gst_tot += gst; total += line_tot
-            rows += f"<tr><td>{i+1}</td><td>{x['Product Name']}</td><td>{x['NSP Code']}</td><td>{qty}</td><td>{rate}</td><td>{disc}</td><td>{taxable:.2f}</td><td>{gst/2:.2f}</td><td>{gst/2:.2f}</td><td>{line_tot:.2f}</td></tr>"
+            # Assume Rate is inclusive or exclusive? Let's assume Rate is Taxable Value
+            taxable = amount
+            gst_amt = taxable * 0.18 # 18% GST
+            total_line = taxable + gst_amt
+            gst_tot += gst_amt
+            total += total_line
+            # Table Row
+            rows += f"""
+            <tr>
+                <td>{i+1}</td>
+                <td style="text-align:left; padding-left:5px;">{x['Product Name']}</td>
+                <td>{x['NSP Code']}</td>
+                <td>{qty}</td>
+                <td>{rate:,.2f}</td>
+                <td>{disc:,.2f}</td>
+                <td>{amount:,.2f}</td>
+            </tr>"""
         else:
-            line_tot = taxable
-            total += line_tot
-            rows += f"<tr><td>{i+1}</td><td>{x['Product Name']}</td><td>{x['NSP Code']}</td><td>{qty}</td><td>{rate}</td><td>{disc}</td><td>{line_tot:.2f}</td></tr>"
+            total += amount
+            rows += f"""
+            <tr>
+                <td>{i+1}</td>
+                <td style="text-align:left; padding-left:5px;">{x['Product Name']}</td>
+                <td>{x['NSP Code']}</td>
+                <td>{qty}</td>
+                <td>{rate:,.2f}</td>
+                <td>{disc:,.2f}</td>
+                <td>{amount:,.2f}</td>
+            </tr>"""
 
+    # Extra Rows to fill A4 space (Visual)
+    for k in range(10 - len(items)):
+        rows += "<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>"
+
+    gst_section = ""
+    if is_gst:
+        gst_section = f"""
+        <tr>
+            <td colspan="5" style="text-align:right;"><b>CGST (9%):</b></td>
+            <td colspan="2">{gst_tot/2:,.2f}</td>
+        </tr>
+        <tr>
+            <td colspan="5" style="text-align:right;"><b>SGST (9%):</b></td>
+            <td colspan="2">{gst_tot/2:,.2f}</td>
+        </tr>
+        """
+    
     html = f"""
-    <div style="border:1px solid black;padding:20px;font-family:Arial;background:white;color:black;">
-        <center><h2>{'TAX INVOICE' if is_gst else 'ESTIMATE'} - SUMEET ENTERPRISES</h2></center>
-        <p><b>Bill To:</b> {data['cust']} | <b>Phone:</b> {data['phone']}</p>
-        <p><b>Inv:</b> {data['inv']} | <b>Date:</b> {data['date']} | <b>Mode:</b> {data.get('mode','Cash')}</p>
-        <table border="1" style="width:100%;border-collapse:collapse;text-align:center;">
-            <tr><th>Sn</th><th>Item</th><th>Code</th><th>Qty</th><th>Sold Rate</th><th>Disc/Unit</th>{'<th>Taxable</th><th>CGST</th><th>SGST</th>' if is_gst else ''}<th>Total</th></tr>
-            {rows}
+    <div style="width:800px; padding:20px; font-family:Arial, sans-serif; border:1px solid #000; background:white; color:black;">
+        <div style="text-align:center;">
+            <h1 style="margin:0; color:#b30000;">SUMEET ENTERPRISES</h1>
+            <p style="margin:2px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, AURANGABAD-431001</p>
+            <p style="margin:2px; font-size:12px;"><b>PHONE:</b> 9890834344 | <b>EMAIL:</b> sumeet.enterprises44@gmail.com</p>
+            {f'<p style="margin:2px; font-size:12px;"><b>GSTIN:</b> 27AEGPC7645R1ZV</p>' if is_gst else ''}
+        </div>
+        
+        <hr style="border-top: 2px solid #000;">
+        
+        <h3 style="text-align:center; margin:5px;">{'TAX INVOICE' if is_gst else 'ESTIMATE'}</h3>
+        
+        <table style="width:100%; border-collapse:collapse; margin-bottom:10px; font-size:12px;">
+            <tr>
+                <td style="border:1px solid #000; padding:5px; width:60%;">
+                    <b>Customer Name:</b> {data['cust']}<br>
+                    <b>Phone:</b> {data['phone']}<br>
+                    <b>Address:</b> {data.get('address', '')}
+                </td>
+                <td style="border:1px solid #000; padding:5px;">
+                    <b>Invoice No:</b> {data['inv']}<br>
+                    <b>Date:</b> {data['date']}<br>
+                    <b>Mode:</b> {data.get('mode','')}
+                </td>
+            </tr>
         </table>
-        <h3 style="text-align:right;">Grand Total: {total:,.2f}</h3>
+
+        <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px; border:1px solid #000;">
+            <tr style="background-color:#f0f0f0;">
+                <th style="border:1px solid #000; width:5%;">Sr.</th>
+                <th style="border:1px solid #000; width:40%;">Product Description</th>
+                <th style="border:1px solid #000;">NSP Code</th>
+                <th style="border:1px solid #000;">Qty</th>
+                <th style="border:1px solid #000;">Rate</th>
+                <th style="border:1px solid #000;">Disc</th>
+                <th style="border:1px solid #000;">Amount</th>
+            </tr>
+            {rows}
+            {gst_section}
+            <tr>
+                <td colspan="6" style="text-align:right; border-top:2px solid #000; padding:5px;"><b>Grand Total:</b></td>
+                <td style="border-top:2px solid #000; padding:5px;"><b>{total:,.2f}</b></td>
+            </tr>
+        </table>
+
+        <div style="margin-top:10px; border:1px solid #000; padding:5px; font-size:11px;">
+            <div style="display:flex; justify-content:space-between;">
+                <div style="width:60%;">
+                    <b>Terms & Conditions:</b>
+                    <ol style="margin:0; padding-left:20px;">
+                        <li>Subject to Aurangabad jurisdiction only.</li>
+                        <li>Loading/Unloading/Transport charges extra.</li>
+                        <li>Once sold cannot be cancelled or returned.</li>
+                        <li>Before delivery 100% payment required.</li>
+                    </ol>
+                    <br>
+                    <b>Bank Details:</b><br>
+                    Bank: {BANK_DETAILS['Name']}<br>
+                    Acc: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']}<br>
+                    Branch: {BANK_DETAILS['Branch']}
+                </div>
+                <div style="width:35%; text-align:center; display:flex; flex-direction:column; justify-content:end;">
+                    <p><b>For SUMEET ENTERPRISES</b></p>
+                    <br><br><br>
+                    <p>Authorised Signatory</p>
+                </div>
+            </div>
+        </div>
     </div>
     """
-    components.html(html, height=800, scrolling=True)
+    components.html(html, height=1000, scrolling=True)
 
-# --- MAIN APP ---
+# --- MAIN APP START ---
 if not check_login(): st.stop()
 
-# Print Preview Overlay
-if 'print_data' in st.session_state:
-    st.markdown("### 🖨️ Print Preview")
-    render_invoice(st.session_state.print_data, st.session_state.print_data.get('bill_type', 'Non-GST'))
-    if st.button("❌ Close Preview", type="primary"): 
-        del st.session_state.print_data
-        st.rerun()
-    st.divider()
-
-if 'cart' not in st.session_state: st.session_state.cart = []
-
+# --- SIDEBAR (Must be first to preserve state) ---
 with st.sidebar:
     st.title("⚡ NEXUS ERP")
-    menu = st.radio("Navigation", ["Dashboard", "Sales", "Purchase", "Stock Transfer", "Inventory", "Quotations", "Manufacturing", "Vendor Payments", "Products", "Logs"])
+    menu = st.radio("Navigation", ["Dashboard", "Sales", "Settle Balance", "Purchase", "Stock Transfer", "Inventory", "Quotations", "Manufacturing", "Vendor Payments", "Products", "Logs"])
     st.divider()
     if st.button("🔄 Refresh Data"): clear_cache(); st.rerun()
     if st.button("🔒 Logout"): st.session_state.authenticated = False; st.rerun()
 
+if 'cart' not in st.session_state: st.session_state.cart = []
+
+# --- DASHBOARD ---
 if menu == "Dashboard":
     st.title("📊 Business Dashboard")
     df = get_inv()
@@ -331,82 +468,102 @@ if menu == "Dashboard":
         c4.metric("🏭 Godown Stock", int(df['Big Godown'].sum()))
         
         st.divider()
-        val = (df['Total Stock'] * df['Selling Price']).sum()
-        st.markdown(f"### 💰 Total Asset Value (MRP): ₹{val:,.0f}")
+        c_val1, c_val2 = st.columns(2)
+        val_mrp = (df['Total Stock'] * df['Selling Price']).sum()
+        val_cp = (df['Total Stock'] * df['Cost Price']).sum()
+        
+        c_val1.metric("💰 Asset Value (MRP)", f"₹{val_mrp:,.0f}")
+        c_val2.metric("📉 Asset Value (Cost)", f"₹{val_cp:,.0f}")
         
         st.divider()
         st.markdown("### ⚠️ Low Stock Alert (Shop < 3)")
         low = df[df['Shop'] < 3][['NSP Code','Product Name','Shop','Big Godown']]
         render_filtered_table(low, "dash")
 
+# --- INVENTORY ---
 elif menu == "Inventory":
     st.title("📦 Live Inventory")
     df = get_inv()
-    # Explicitly selecting columns to ensure Cost and Selling Price appear
     show_cols = ['NSP Code', 'Product Name', 'Total Stock', 'Shop', 'Terrace Godown', 'Big Godown', 'Selling Price', 'Cost Price']
-    # Filter to only cols that actually exist in df
     final_cols = [c for c in show_cols if c in df.columns]
     render_filtered_table(df[final_cols], "inv")
 
+# --- SALES ---
 elif menu == "Sales":
     st.title("🛒 Sales & Billing")
     t1, t2 = st.tabs(["New Invoice", "History / Reprint"])
     
     with t1:
-        c_sell_1, c_sell_2 = st.columns(2)
-        loc_s = c_sell_1.selectbox("📍 Sell From", LOCATIONS)
-        salesman = c_sell_2.selectbox("👤 Salesman", SALESMEN)
-        
-        df = get_inv()
-        if not df.empty:
-            df['Search'] = df['Product Name'] + " | " + df['NSP Code']
-            sel = st.selectbox("Search Product", df['Search'].unique(), index=None)
+        # Check if we are in "Print Mode"
+        if 'print_data' in st.session_state:
+            st.warning("⚠️ Bill Generated. Please Print or Close to continue.")
+            render_invoice(st.session_state.print_data, st.session_state.print_data.get('bill_type', 'Non-GST'))
+            if st.button("❌ Close Preview & Start New Bill", type="primary"): 
+                del st.session_state.print_data
+                st.rerun()
+        else:
+            # Normal Sales Interface
+            c_sell_1, c_sell_2 = st.columns(2)
+            loc_s = c_sell_1.selectbox("📍 Sell From", LOCATIONS)
+            salesman = c_sell_2.selectbox("👤 Salesman", SALESMEN)
             
-            if sel:
-                it = df[df['Search'] == sel].iloc[0]
-                av = it[loc_s]
-                # FIX: Ensure MRP is float
-                mrp = safe_float(it['Selling Price'])
+            df = get_inv()
+            if not df.empty:
+                df['Search'] = df['Product Name'] + " | " + df['NSP Code']
+                sel = st.selectbox("Search Product", df['Search'].unique(), index=None)
                 
-                st.info(f"Available: {av} | MRP (System): ₹{mrp}")
-                
-                c1, c2, c3 = st.columns(3)
-                qty = c1.number_input("Qty", 1, max_value=int(av) if av>0 else 1)
-                sold_at = c2.number_input("Sold At Price", value=mrp)
-                
-                # Auto-Calculate Discount
-                calc_disc = mrp - sold_at
-                st.caption(f"Discount: ₹{calc_disc:.2f} (Auto-Calculated)")
-                
-                if st.button("Add to Cart"):
-                    if av >= qty:
-                        st.session_state.cart.append({
-                            "NSP Code":it['NSP Code'], "Product Name":it['Product Name'],
-                            "Qty":qty, "Price":sold_at, "Discount":calc_disc, "Total":sold_at*qty,
-                            "Location":loc_s, "MRP": mrp
-                        })
-                        st.success("Added")
-                    else: st.error("Out of Stock!")
+                if sel:
+                    it = df[df['Search'] == sel].iloc[0]
+                    av = it[loc_s]
+                    mrp = safe_float(it['Selling Price'])
+                    
+                    st.info(f"Available: {av} | MRP: ₹{mrp}")
+                    
+                    c1, c2, c3 = st.columns(3)
+                    qty = c1.number_input("Qty", 1, max_value=int(av) if av>0 else 1)
+                    sold_at = c2.number_input("Sold At Price", value=mrp)
+                    
+                    calc_disc = mrp - sold_at
+                    st.caption(f"Discount: ₹{calc_disc:.2f}")
+                    
+                    if st.button("Add to Cart"):
+                        if av >= qty:
+                            st.session_state.cart.append({
+                                "NSP Code":it['NSP Code'], "Product Name":it['Product Name'],
+                                "Qty":qty, "Price":sold_at, "Discount":calc_disc, "Total":sold_at*qty,
+                                "Location":loc_s, "MRP": mrp
+                            })
+                            st.success("Added")
+                        else: st.error("Out of Stock!")
 
-        if st.session_state.cart:
-            st.write("### 🛒 Cart")
-            st.dataframe(pd.DataFrame(st.session_state.cart))
-            if st.button("Clear Cart"): st.session_state.cart=[]
-            
-            gt = sum(x['Total'] for x in st.session_state.cart)
-            st.markdown(f"### Total: ₹{gt:,.2f}")
-            
-            with st.form("checkout"):
-                c1, c2 = st.columns(2)
-                cust = c1.text_input("Customer Name"); ph = c2.text_input("Phone")
-                c3, c4 = st.columns(2)
-                mode = c3.selectbox("Mode", ["Cash","UPI942", "UPI03", "UPI681", "PHONEPE"]); inv = c4.text_input("Inv No", value=f"INV-{int(time.time())}")
-                paid = st.number_input("Amount Paid", value=gt)
-                b_type = st.radio("Bill Type", ["Non-GST", "GST"], horizontal=True)
+            if st.session_state.cart:
+                st.write("### 🛒 Cart")
+                st.dataframe(pd.DataFrame(st.session_state.cart))
+                if st.button("Clear Cart"): st.session_state.cart=[]
                 
-                if st.form_submit_button("Generate Invoice"):
+                gt = sum(x['Total'] for x in st.session_state.cart)
+                st.markdown(f"### Total: ₹{gt:,.2f}")
+                
+                with st.form("checkout"):
+                    c1, c2 = st.columns(2)
+                    cust = c1.text_input("Customer Name"); ph = c2.text_input("Phone")
+                    c3, c4 = st.columns(2)
+                    mode = c3.selectbox("Mode", ["Cash","UPI942", "UPI03", "UPI681", "PHONEPE", "Card"])
+                    
+                    # Manual Override for Invoice
+                    auto_inv = f"INV-{int(time.time())}"
+                    inv = c4.text_input("Inv No (Edit to Override)", value=auto_inv)
+                    
+                    paid = st.number_input("Amount Paid Now", value=gt)
+                    b_type = st.radio("Bill Type", ["Non-GST", "GST"], horizontal=True)
+                    
+                    c_btn1, c_btn2 = st.columns(2)
+                    submitted = st.form_submit_button("💾 Save Bill")
+                
+                if submitted:
                     d = datetime.now().strftime("%Y-%m-%d")
                     bal = gt - paid
+                    
                     for x in st.session_state.cart:
                         save_entry("Sales", {
                             "Invoice No":inv, "Date":d, "Customer Name":cust, "Phone":ph,
@@ -415,6 +572,8 @@ elif menu == "Sales":
                             "Total":x['Total'], "Paid":paid, "Balance":bal, "Mode":mode, "Bill Type":b_type,
                             "Location":x['Location'], "Salesman": salesman
                         })
+                    
+                    # Set Print Data State
                     st.session_state.print_data = {
                         "inv":inv, "cust":cust, "phone":ph, "date":d, "items":st.session_state.cart,
                         "total":gt, "paid":paid, "bal":bal, "mode":mode, "loc_source":loc_s, "bill_type":b_type
@@ -448,12 +607,74 @@ elif menu == "Sales":
                     log_action("Delete Sale", sel_inv)
                     st.success("Deleted!"); st.rerun()
 
+# --- SETTLE BALANCE (NEW) ---
+elif menu == "Settle Balance":
+    st.title("💰 Settle Pending Balance")
+    
+    # 1. Load Sales Data with Balance > 0
+    df_s = load_data("Sales")
+    if not df_s.empty:
+        # Group by Invoice to see total balance
+        # Because we store line items, the 'Balance' column is repeated. 
+        # We need to find invoices where Balance > 0
+        
+        # Display logic: Show Unique Invoices with Balance > 0
+        df_s['Balance'] = df_s['Balance'].apply(safe_float)
+        pending = df_s[df_s['Balance'] > 0].drop_duplicates(subset=['Invoice No'])
+        
+        if pending.empty:
+            st.success("🎉 No Pending Payments!")
+        else:
+            st.markdown("### 📋 Pending Invoices")
+            st.dataframe(pending[['Invoice No', 'Date', 'Customer Name', 'Phone', 'Total', 'Paid', 'Balance']], use_container_width=True)
+            
+            st.divider()
+            st.markdown("### 💳 Make a Settlement")
+            
+            sel_inv_pay = st.selectbox("Select Invoice to Settle", pending['Invoice No'].unique())
+            
+            if sel_inv_pay:
+                row = pending[pending['Invoice No'] == sel_inv_pay].iloc[0]
+                curr_bal = row['Balance']
+                cust_name = row['Customer Name']
+                
+                st.info(f"Customer: {cust_name} | Current Balance: ₹{curr_bal}")
+                
+                with st.form("settle_form"):
+                    pay_amt = st.number_input("Enter Amount to Pay", 1.0, max_value=float(curr_bal))
+                    pay_mode = st.selectbox("Payment Mode", ["Cash", "UPI", "Card"])
+                    note = st.text_input("Note (Optional)")
+                    
+                    if st.form_submit_button("Confirm Payment"):
+                        if update_balance(sel_inv_pay, pay_amt):
+                            # Generate Receipt
+                            st.success("Payment Recorded!")
+                            log_action("Settlement", f"{sel_inv_pay} - {pay_amt}")
+                            
+                            # Receipt HTML
+                            html = f"""
+                            <div style="border:1px solid black; padding:20px; font-family:Arial;">
+                                <center><h2>PAYMENT RECEIPT</h2></center>
+                                <p><b>Date:</b> {datetime.now().strftime("%Y-%m-%d")}</p>
+                                <p><b>Received with thanks from:</b> {cust_name}</p>
+                                <p><b>Against Invoice No:</b> {sel_inv_pay}</p>
+                                <p><b>Sum of Rupees:</b> ₹{pay_amt:,.2f}</p>
+                                <p><b>Mode:</b> {pay_mode}</p>
+                                <p><b>Remaining Balance:</b> ₹{curr_bal - pay_amt:,.2f}</p>
+                                <br>
+                                <p style="text-align:right;">For SUMEET ENTERPRISES</p>
+                            </div>
+                            """
+                            components.html(html, height=400)
+                        else:
+                            st.error("Error updating database.")
+
+# --- PURCHASE ---
 elif menu == "Purchase":
     st.title("🚚 Purchase & Stock In")
     t1, t2 = st.tabs(["New Entry", "History"])
     
     with t1:
-        # --- SELECTION MODE ---
         mode = st.radio("Select Action", ["Restock Existing Product", "Register New Product"], horizontal=True)
         st.divider()
 
@@ -467,20 +688,22 @@ elif menu == "Purchase":
         if mode == "Restock Existing Product":
             df = get_inv()
             if not df.empty:
-                sel_prod = st.selectbox("Select Product to Restock", df['Product Name'].unique())
-                if sel_prod:
-                    curr_item = df[df['Product Name'] == sel_prod].iloc[0]
+                # FIX: Show Name | Code in Dropdown
+                df['Display'] = df['Product Name'] + " | " + df['NSP Code']
+                sel_display = st.selectbox("Select Product", df['Display'].unique())
+                
+                if sel_display:
+                    # Reverse lookup
+                    sel_prod = df[df['Display'] == sel_display].iloc[0]
                     
                     c1, c2 = st.columns(2)
-                    p_code = c1.text_input("NSP Code", value=curr_item['NSP Code'], disabled=True)
-                    p_name = c2.text_input("Product Name", value=curr_item['Product Name'], disabled=True)
+                    p_code = c1.text_input("NSP Code", value=sel_prod['NSP Code'], disabled=True)
+                    p_name = c2.text_input("Product Name", value=sel_prod['Product Name'], disabled=True)
                     
                     c3, c4 = st.columns(2)
-                    # Use current DB values
-                    db_cp = safe_float(curr_item.get('Cost Price', 0))
-                    db_sp = safe_float(curr_item.get('Selling Price', 0))
+                    db_cp = safe_float(sel_prod.get('Cost Price', 0))
+                    db_sp = safe_float(sel_prod.get('Selling Price', 0))
                     
-                    # Editable
                     input_cp = c3.number_input("Cost Price", value=db_cp)
                     input_sp = c4.number_input("Selling Price (MRP)", value=db_sp)
                     
@@ -495,11 +718,8 @@ elif menu == "Purchase":
                             st.error("⚠️ Vendor Name is Compulsory!")
                         else:
                             d = datetime.now().strftime("%Y-%m-%d")
-                            # 1. Update Master
                             update_product_master(p_code, p_name, input_cp, input_sp)
-                            # 2. Add Purchase
                             save_entry("Purchase", {"NSP Code": p_code, "Date": d, "Qty": qty, "Location": loc, "Vendor Name": vendor_name, "Cost Price": input_cp})
-                            # 3. Add Pending Payment
                             save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": input_cp * qty, "Status": "Pending", "Notes": f"Restock {p_code}"})
                             st.success("Restocked & Payment Logged!"); st.rerun()
 
@@ -508,7 +728,6 @@ elif menu == "Purchase":
             code = c1.text_input("New NSP Code")
             name = c2.text_input("New Product Name")
             
-            # Formula Inputs (No Form Wrapper)
             c3, c4 = st.columns(2)
             cp_in = c3.number_input("Cost Price", key='p_cp', on_change=update_sp, step=1.0)
             sp_in = c4.number_input("Selling Price (MRP)", key='p_sp', on_change=update_cp, step=1.0)
@@ -524,11 +743,8 @@ elif menu == "Purchase":
                     st.error("⚠️ Vendor Name, Code and Product Name are Compulsory!")
                 else:
                     d = datetime.now().strftime("%Y-%m-%d")
-                    # 1. Update Master
                     update_product_master(code, name, st.session_state.p_cp, st.session_state.p_sp)
-                    # 2. Add Purchase
                     save_entry("Purchase", {"NSP Code": code, "Date": d, "Qty": qty, "Location": loc, "Vendor Name": vendor_name, "Cost Price": st.session_state.p_cp})
-                    # 3. Add Pending Payment
                     save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": st.session_state.p_cp * qty, "Status": "Pending", "Notes": f"New: {code}"})
                     st.success("New Product Registered & Stocked!"); st.rerun()
 
@@ -536,6 +752,7 @@ elif menu == "Purchase":
         df_p = load_data("Purchase")
         render_filtered_table(df_p, "purch")
 
+# --- QUOTATIONS ---
 elif menu == "Quotations":
     st.title("📄 Quotations")
     t1, t2 = st.tabs(["New Quote", "History / Reprint"])
@@ -576,6 +793,7 @@ elif menu == "Quotations":
                     st.session_state.print_data = {"inv": sel_q, "cust": first['Customer Name'], "phone": first['Phone'], "date": first['Date'], "items": items, "bill_type": "Non-GST"}
                     st.rerun()
 
+# --- MANUFACTURING ---
 elif menu == "Manufacturing":
     st.title("🏭 Manufacturing")
     t1, t2 = st.tabs(["New Order", "History"])
@@ -590,6 +808,7 @@ elif menu == "Manufacturing":
         df_m = load_data("Manufacturing")
         render_filtered_table(df_m, "mfg")
 
+# --- VENDOR PAYMENTS ---
 elif menu == "Vendor Payments":
     st.title("💸 Vendor Payments")
     t1, t2 = st.tabs(["New Payment", "History"])
@@ -603,6 +822,7 @@ elif menu == "Vendor Payments":
         df_v = load_data("Vendor_Payments")
         render_filtered_table(df_v, "vp")
 
+# --- STOCK TRANSFER ---
 elif menu == "Stock Transfer":
     st.title("🚚 Transfer")
     df = get_inv()
@@ -620,15 +840,43 @@ elif menu == "Stock Transfer":
                         st.success("Moved"); st.rerun()
                     else: st.error("Low Stock")
 
+# --- PRODUCTS MANAGEMENT ---
 elif menu == "Products":
     st.title("📦 Products List")
-    df = load_data("Products")
-    render_filtered_table(df, "prods")
+    t1, t2, t3 = st.tabs(["View / Filter", "Add New Product", "Delete Product"])
+    
+    with t1:
+        df = load_data("Products")
+        render_filtered_table(df, "prods")
+        
+    with t2:
+        st.write("### Add Product Manually (Without Purchase)")
+        with st.form("add_prod_man"):
+            nc = st.text_input("NSP Code")
+            nn = st.text_input("Product Name")
+            ncp = st.number_input("Cost Price")
+            nsp = st.number_input("Selling Price")
+            if st.form_submit_button("Add Product"):
+                update_product_master(nc, nn, ncp, nsp)
+                st.success("Product Added")
+                
+    with t3:
+        st.write("### ⚠️ Delete Product")
+        st.warning("Deleting a product does not delete its history in Sales/Purchase.")
+        df = load_data("Products")
+        if not df.empty:
+            del_code = st.selectbox("Select Code to Delete", df['NSP Code'].unique())
+            if st.button("Permanently Delete"):
+                if delete_entry("Products", "NSP Code", del_code):
+                    st.success(f"Deleted {del_code}")
+                    st.rerun()
 
+# --- LOGS ---
 elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
