@@ -388,7 +388,7 @@ def render_invoice(data, bill_type="Non-GST"):
         <div style="display:flex; border-bottom:1px solid #000;">
             <div style="width:60%; padding:10px; border-right:1px solid #000; font-size:13px; line-height:1.4;">
                 <b style="text-decoration:underline;">BILLED TO:</b><br>
-                <b>{data['cust']}</b><br>
+               Customer Name: <b>{data['cust']}</b><br>
                 Phone: {data['phone']}
                 {cust_gst_display}
                 {address_display}
@@ -852,6 +852,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
