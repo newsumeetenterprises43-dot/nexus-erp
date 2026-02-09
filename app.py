@@ -364,8 +364,8 @@ def render_invoice(data, bill_type="Non-GST"):
         </div>
         """
 
-    cust_gst_display = f"<br><b>GSTIN:</b> {data.get('cust_gst','')}" if data.get('cust_gst') else ""
     address_display = f"<br><b>Address:</b> {data.get('address','')}" if data.get('address') else ""
+    cust_gst_display = f"<br><b>GSTIN:</b> {data.get('cust_gst','')}" if data.get('cust_gst') else ""
     
     gst_headers = f'<th style="{style_th}">Taxable</th><th style="{style_th}">CGST</th><th style="{style_th}">SGST</th>' if is_gst else ''
     hsn_header = f'<th style="{style_th}">HSN</th>' if is_gst else ''
@@ -851,6 +851,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
