@@ -448,11 +448,10 @@ def render_invoice(data, bill_type="Non-GST"):
             <div style="width:65%; padding:10px; border-right:1px solid #000;">
                 <b>TERMS & CONDITIONS:</b>
                 <ol style="margin:5px 0 0 15px; padding:0;">
-                    <li>Subject to CH. sambhajinagr jurisdiction only.</li>
+                    <li>Subject to CH. sambhajinagr jurisdiction.</li>
                     <li>Goods once sold will not be taken back.</li>
-                    <li>Interest @ 24% p.a. charged if bill not paid on due date.</li>
                     <li>Company does'nt provide guarantee, so we also don't.</li>
-                    <li>After booking, goods should be taken within 10 days.</li>
+                    <li>If booked furniture isn not collected within 10 days, no complains of any kind will be entertained.</li>
                 </ol>
                 {bank_html}
             </div>
@@ -852,6 +851,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
