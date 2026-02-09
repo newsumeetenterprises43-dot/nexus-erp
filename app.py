@@ -153,23 +153,44 @@ def save_entry(sheet_name, data_dict):
     except Exception as e: st.error(f"Save Error: {e}"); return False
 
 def update_product_master(code, name, cp, sp):
+    """
+    Updates existing product OR creates a new one in the Products sheet.
+    Crucial for 'Register New Product' to work correctly.
+    """
     try:
         sh = connect_to_gsheet(); ws = sh.worksheet("Products")
         try:
+            # Try to find existing product
             cell = ws.find(str(code))
             headers = ws.row_values(1)
+            
             def get_col_idx(name_list):
                 for i, h in enumerate(headers):
                     if h.lower().replace(" ","") in name_list: return i + 1
                 return None
+                
             idx_name = get_col_idx(["productname", "product_name"])
             idx_cp = get_col_idx(["costprice", "cp"])
             idx_sp = get_col_idx(["sellingprice", "sp", "mrp"])
+            
             if idx_name: ws.update_cell(cell.row, idx_name, name)
             if idx_cp: ws.update_cell(cell.row, idx_cp, float(cp))
             if idx_sp: ws.update_cell(cell.row, idx_sp, float(sp))
+            
         except gspread.exceptions.CellNotFound:
-            save_entry("Products", {"NSP Code": code, "Product Name": name, "Cost Price": cp, "Selling Price": sp})
+            # CREATE NEW PRODUCT ENTRY if not found
+            # We explicitly add the Opening Balance columns as 0 to avoid errors
+            new_prod_data = {
+                "NSP Code": code, 
+                "Product Name": name, 
+                "Cost Price": cp, 
+                "Selling Price": sp,
+                "Op_Shop": 0,
+                "Op_Terrace": 0,
+                "Op_Godown": 0
+            }
+            save_entry("Products", new_prod_data)
+            
         clear_cache()
     except Exception as e: st.error(f"Master Update Error: {e}")
 
@@ -274,10 +295,9 @@ def render_invoice(data, bill_type="Non-GST"):
     items = data.get('items', [])
     
     # CSS: Single Grid Look
-    # We remove individual borders from TDs and handle them via the Table/Container structure
     style_th = "border-right:1px solid #000; border-bottom:1px solid #000; padding:5px; font-weight:bold; background-color:#eee; font-size:12px;"
     style_td = "border-right:1px solid #000; padding:5px; vertical-align:middle; font-size:12px;"
-    style_td_last = "padding:5px; vertical-align:middle; font-size:12px;" # No right border for last col
+    style_td_last = "padding:5px; vertical-align:middle; font-size:12px;" 
     
     for i, x in enumerate(items):
         qty = safe_float(x.get('Qty',0)); rate = safe_float(x.get('Price',0)); disc = safe_float(x.get('Discount',0))
@@ -313,14 +333,11 @@ def render_invoice(data, bill_type="Non-GST"):
                 <td style="{style_td_last} text-align:right; font-weight:bold;">{amount:,.2f}</td>
             </tr>"""
 
-    # Fill empty rows to push footer down (Visual only)
     for k in range(8 - len(items)):
         cols = 11 if is_gst else 7
-        # We use style_td for all except last to maintain vertical grid lines
         grid_tds = "".join([f"<td style='{style_td} color:white;'>.</td>" for _ in range(cols-1)])
         rows += f"<tr>{grid_tds}<td style='{style_td_last}'></td></tr>"
 
-    # GST Totals Section
     gst_section = ""
     if is_gst:
         gst_section = f"""
@@ -333,7 +350,6 @@ def render_invoice(data, bill_type="Non-GST"):
             <td colspan="3" style="text-align:right; padding:5px;">{gst_tot/2:,.2f}</td>
         </tr>"""
 
-    # Bank Details Logic: Show ONLY if GST Bill OR Quotation
     bank_html = ""
     if is_gst or is_quote:
         bank_html = f"""
@@ -342,11 +358,9 @@ def render_invoice(data, bill_type="Non-GST"):
         </div>
         """
 
-    # Customer/Invoice Headers
     cust_gst_display = f"<br><b>GSTIN:</b> {data.get('cust_gst','')}" if data.get('cust_gst') else ""
     address_display = f"<br><b>Address:</b> {data.get('address','')}" if data.get('address') else ""
     
-    # Table Header String Construction
     gst_headers = f'<th style="{style_th}">Taxable</th><th style="{style_th}">CGST</th><th style="{style_th}">SGST</th>' if is_gst else ''
     hsn_header = f'<th style="{style_th}">HSN</th>' if is_gst else ''
     last_col_header = f'<th style="padding:5px; font-weight:bold; background-color:#eee; font-size:12px; border-bottom:1px solid #000;">Total</th>'
@@ -433,7 +447,7 @@ def render_invoice(data, bill_type="Non-GST"):
                     <li>Interest @ 24% p.a. charged if bill not paid on due date.</li>
                     <li>Company does'nt provide guarantee, so we also don't.</li>
                     <li>After booking, goods should be taken within 10 days.</li>
-                </
+                </ol>
                 {bank_html}
             </div>
             <div style="width:35%; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
@@ -649,12 +663,24 @@ elif menu == "Purchase":
                         if not vendor_name: st.error("⚠️ Vendor Name is Compulsory!")
                         else:
                             d = datetime.now().strftime("%Y-%m-%d")
+                            # Explicitly update product master first
                             update_product_master(p_code, p_name, input_cp, input_sp)
-                            save_entry("Purchase", {"NSP Code": p_code, "Date": d, "Qty": qty, "Location": loc, "Vendor Name": vendor_name, "Cost Price": input_cp})
+                            
+                            # Log purchase with FULL details
+                            save_entry("Purchase", {
+                                "NSP Code": p_code, 
+                                "Product Name": p_name,
+                                "Date": d, 
+                                "Qty": qty, 
+                                "Location": loc, 
+                                "Vendor Name": vendor_name, 
+                                "Cost Price": input_cp,
+                                "Selling Price": input_sp
+                            })
                             save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": input_cp * qty, "Status": "Pending", "Notes": f"Restock {p_code}"})
                             st.success("Restocked & Payment Logged!"); st.rerun()
 
-        else: 
+        else: # REGISTER NEW PRODUCT
             c1, c2 = st.columns(2)
             code = c1.text_input("New NSP Code")
             name = c2.text_input("New Product Name")
@@ -665,22 +691,34 @@ elif menu == "Purchase":
             loc = c_l1.selectbox("Location", LOCATIONS)
             qty = c_l2.number_input("Qty", 1)
             vendor_name = st.text_input("Vendor Name (Compulsory)")
+            
             if st.button("Register & Save Purchase", type="primary"):
                 if not vendor_name or not code or not name: st.error("⚠️ Vendor Name, Code and Product Name are Compulsory!")
                 else:
                     d = datetime.now().strftime("%Y-%m-%d")
+                    # 1. Update Master (Forces Creation of New Row in Products)
                     update_product_master(code, name, st.session_state.p_cp, st.session_state.p_sp)
-                    save_entry("Purchase", {"NSP Code": code, "Date": d, "Qty": qty, "Location": loc, "Vendor Name": vendor_name, "Cost Price": st.session_state.p_cp})
+                    
+                    # 2. Log Purchase (With Name and Prices included)
+                    save_entry("Purchase", {
+                        "NSP Code": code, 
+                        "Product Name": name,
+                        "Date": d, 
+                        "Qty": qty, 
+                        "Location": loc, 
+                        "Vendor Name": vendor_name, 
+                        "Cost Price": st.session_state.p_cp,
+                        "Selling Price": st.session_state.p_sp
+                    })
+                    
+                    # 3. Log Vendor Payment
                     save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": st.session_state.p_cp * qty, "Status": "Pending", "Notes": f"New: {code}"})
+                    
                     st.success("New Product Registered & Stocked!"); st.rerun()
     with t2:
         df_p = load_data("Purchase")
-        df_prods = load_data("Products")
-        if not df_p.empty and not df_prods.empty:
-            df_merged = pd.merge(df_p, df_prods[['NSP Code', 'Product Name', 'Selling Price', 'Cost Price']], on='NSP Code', how='left')
-            render_filtered_table(df_merged, "purch")
-        else:
-            render_filtered_table(df_p, "purch")
+        # No need to merge if we save the name correctly now, but keeping for backward compatibility
+        render_filtered_table(df_p, "purch")
 
 # --- QUOTATIONS ---
 elif menu == "Quotations":
@@ -805,6 +843,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
