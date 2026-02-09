@@ -431,8 +431,8 @@ def render_invoice(data, bill_type="Non-GST"):
                     <li>Subject to CH. sambhajinagr jurisdiction only.</li>
                     <li>Goods once sold will not be taken back.</li>
                     <li>Interest @ 24% p.a. charged if bill not paid on due date.</li>
-                    <li>Company doesnt provide any guarantee, therefore we don't provide any guarantee too.</li>
-                    <li>After booking goods should be taken within 10 days, complains won't be entertained later</li>
+                    <li>Company does'nt provide guarantee, so we also don't.</li>
+                    <li>After booking, goods should be taken within 10 days.</li>
                 </
                 {bank_html}
             </div>
@@ -805,6 +805,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
