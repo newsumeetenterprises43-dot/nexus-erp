@@ -257,18 +257,27 @@ def get_header_html(is_gst):
     return f"""
     <div style="text-align:center; border-bottom:2px solid #333; padding-bottom:10px; margin-bottom:20px;">
         <h1 style="margin:0; font-size:28px; color:#b30000; letter-spacing:1px;">SUMEET ENTERPRISES</h1>
-        <p style="margin:4px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, AURANGABAD-431001</p>
+        <p style="margin:4px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, CH. SAMBHAJINAGAR-431001</p>
         <p style="margin:4px; font-size:12px;"><b>PHONE:</b> 9890834344 | <b>EMAIL:</b> sumeet.enterprises44@gmail.com</p>
         {f'<p style="margin:4px; font-size:12px;"><b>GSTIN:</b> 27AEGPC7645R1ZV</p>' if is_gst else ''}
     </div>
     """
 
+# --- HTML INVOICE (CONTINUOUS GRID DESIGN) ---
 def render_invoice(data, bill_type="Non-GST"):
     rows = ""
     total = 0; gst_tot = 0
     is_gst = bill_type == "GST"
+    # Detect if this is a Quotation (Quote IDs start with 'Q')
+    is_quote = str(data.get('inv', '')).startswith('Q')
+    
     items = data.get('items', [])
-    style_td = "border:1px solid #000; padding:8px; vertical-align:middle;"
+    
+    # CSS: Single Grid Look
+    # We remove individual borders from TDs and handle them via the Table/Container structure
+    style_th = "border-right:1px solid #000; border-bottom:1px solid #000; padding:5px; font-weight:bold; background-color:#eee; font-size:12px;"
+    style_td = "border-right:1px solid #000; padding:5px; vertical-align:middle; font-size:12px;"
+    style_td_last = "padding:5px; vertical-align:middle; font-size:12px;" # No right border for last col
     
     for i, x in enumerate(items):
         qty = safe_float(x.get('Qty',0)); rate = safe_float(x.get('Price',0)); disc = safe_float(x.get('Discount',0))
@@ -278,7 +287,7 @@ def render_invoice(data, bill_type="Non-GST"):
             taxable = amount; gst_amt = taxable * 0.18; total_line = taxable + gst_amt
             gst_tot += gst_amt; total += total_line
             rows += f"""
-            <tr>
+            <tr style="border-bottom:1px solid #ccc;">
                 <td style="{style_td} text-align:center;">{i+1}</td>
                 <td style="{style_td} text-align:left;">{x['Product Name']}</td>
                 <td style="{style_td} text-align:center;">{x['NSP Code']}</td>
@@ -289,167 +298,151 @@ def render_invoice(data, bill_type="Non-GST"):
                 <td style="{style_td} text-align:right;">{amount:,.2f}</td>
                 <td style="{style_td} text-align:right;">{gst_amt/2:,.2f}</td>
                 <td style="{style_td} text-align:right;">{gst_amt/2:,.2f}</td>
-                <td style="{style_td} text-align:right; font-weight:bold;">{total_line:,.2f}</td>
+                <td style="{style_td_last} text-align:right; font-weight:bold;">{total_line:,.2f}</td>
             </tr>"""
         else:
             total += amount
             rows += f"""
-            <tr>
+            <tr style="border-bottom:1px solid #ccc;">
                 <td style="{style_td} text-align:center;">{i+1}</td>
                 <td style="{style_td} text-align:left;">{x['Product Name']}</td>
                 <td style="{style_td} text-align:center;">{x['NSP Code']}</td>
                 <td style="{style_td} text-align:center;">{qty}</td>
                 <td style="{style_td} text-align:right;">{rate:,.2f}</td>
                 <td style="{style_td} text-align:right;">{disc:,.2f}</td>
-                <td style="{style_td} text-align:right; font-weight:bold;">{amount:,.2f}</td>
+                <td style="{style_td_last} text-align:right; font-weight:bold;">{amount:,.2f}</td>
             </tr>"""
 
+    # Fill empty rows to push footer down (Visual only)
     for k in range(8 - len(items)):
         cols = 11 if is_gst else 7
-        rows += f"<tr>" + "".join([f"<td style='{style_td} color:white;'>.</td>" for _ in range(cols)]) + "</tr>"
+        # We use style_td for all except last to maintain vertical grid lines
+        grid_tds = "".join([f"<td style='{style_td} color:white;'>.</td>" for _ in range(cols-1)])
+        rows += f"<tr>{grid_tds}<td style='{style_td_last}'></td></tr>"
 
+    # GST Totals Section
     gst_section = ""
     if is_gst:
         gst_section = f"""
-        <tr>
-            <td colspan="8" style="text-align:right; padding:8px; border:1px solid #000;"><b>CGST (9%):</b></td>
-            <td colspan="3" style="text-align:right; padding:8px; border:1px solid #000;">{gst_tot/2:,.2f}</td>
+        <tr style="border-top:1px solid #000;">
+            <td colspan="8" style="text-align:right; padding:5px; border-right:1px solid #000;"><b>CGST (9%):</b></td>
+            <td colspan="3" style="text-align:right; padding:5px;">{gst_tot/2:,.2f}</td>
         </tr>
         <tr>
-            <td colspan="8" style="text-align:right; padding:8px; border:1px solid #000;"><b>SGST (9%):</b></td>
-            <td colspan="3" style="text-align:right; padding:8px; border:1px solid #000;">{gst_tot/2:,.2f}</td>
+            <td colspan="8" style="text-align:right; padding:5px; border-right:1px solid #000;"><b>SGST (9%):</b></td>
+            <td colspan="3" style="text-align:right; padding:5px;">{gst_tot/2:,.2f}</td>
         </tr>"""
 
-    # Payment Status Box
-    paid_amt = safe_float(data.get('paid', 0))
-    bal_amt = safe_float(data.get('bal', 0))
-    
-    payment_box = f"""
-    <table style="width:100%; border-collapse:collapse; margin-top:20px; border:2px solid #000;">
-        <tr style="background-color:#e0e0e0;">
-            <th style="border:1px solid #000; padding:8px; width:33%;">Grand Total</th>
-            <th style="border:1px solid #000; padding:8px; width:33%;">Amount Paid</th>
-            <th style="border:1px solid #000; padding:8px; width:33%;">Balance Due</th>
-        </tr>
-        <tr>
-            <td style="border:1px solid #000; padding:10px; text-align:center; font-weight:bold; font-size:16px;">₹ {total:,.2f}</td>
-            <td style="border:1px solid #000; padding:10px; text-align:center; font-weight:bold; font-size:16px; color:green;">₹ {paid_amt:,.2f}</td>
-            <td style="border:1px solid #000; padding:10px; text-align:center; font-weight:bold; font-size:16px; color:red;">₹ {bal_amt:,.2f}</td>
-        </tr>
-        <tr>
-            <td colspan="3" style="border:1px solid #000; padding:5px; text-align:center; font-size:12px;">Payment Mode: {data.get('mode','')}</td>
-        </tr>
-    </table>
-    """
+    # Bank Details Logic: Show ONLY if GST Bill OR Quotation
+    bank_html = ""
+    if is_gst or is_quote:
+        bank_html = f"""
+        <div style="margin-top:10px; padding-top:5px; border-top:1px solid #000;">
+            <b>BANK DETAILS:</b> {BANK_DETAILS['Name']} | Acc: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']} | Branch: {BANK_DETAILS['Branch']}
+        </div>
+        """
 
+    # Customer/Invoice Headers
     cust_gst_display = f"<br><b>GSTIN:</b> {data.get('cust_gst','')}" if data.get('cust_gst') else ""
     address_display = f"<br><b>Address:</b> {data.get('address','')}" if data.get('address') else ""
+    
+    # Table Header String Construction
+    gst_headers = f'<th style="{style_th}">Taxable</th><th style="{style_th}">CGST</th><th style="{style_th}">SGST</th>' if is_gst else ''
+    hsn_header = f'<th style="{style_th}">HSN</th>' if is_gst else ''
+    last_col_header = f'<th style="padding:5px; font-weight:bold; background-color:#eee; font-size:12px; border-bottom:1px solid #000;">Total</th>'
 
     html = f"""
-    <div style="width:210mm; min-height:297mm; padding:30px; margin:auto; font-family:Helvetica, Arial, sans-serif; border:1px solid #ddd; background:white; color:black;">
-        {get_header_html(is_gst)}
-        <h3 style="text-align:center; margin-bottom:20px; text-transform:uppercase; font-size:16px; border:1px solid #000; padding:5px; width:200px; margin:0 auto;">{'TAX INVOICE' if is_gst else 'ESTIMATE'}</h3>
+    <div style="width:210mm; min-height:297mm; margin:auto; font-family:Arial, sans-serif; border:1px solid #000; background:white; color:black; box-sizing: border-box;">
         
-        <div style="display:flex; justify-content:space-between; margin-bottom:20px; font-size:13px; margin-top:20px;">
-            <div style="width:58%; border:1px solid #000; padding:10px; line-height:1.6;">
-                <b style="font-size:14px; text-decoration:underline;">BILLED TO:</b><br>
-                <b>Name:</b> {data['cust']}<br>
-                <b>Phone:</b> {data['phone']}
+        <div style="text-align:center; padding:15px; border-bottom:1px solid #000;">
+            <h1 style="margin:0; font-size:26px; color:#b30000; font-weight:bold;">SUMEET ENTERPRISES</h1>
+            <p style="margin:2px; font-size:12px;">CHETAN SUPER MARKET, TRIMURTI CHOWK, JAWAHAR COLONY ROAD, AURANGABAD-431001</p>
+            <p style="margin:2px; font-size:12px;"><b>PHONE:</b> 9890834344 | <b>EMAIL:</b> sumeet.enterprises44@gmail.com</p>
+            {f'<p style="margin:2px; font-size:12px;"><b>GSTIN:</b> 27AEGPC7645R1ZV</p>' if is_gst else ''}
+        </div>
+        
+        <div style="text-align:center; padding:5px; background-color:#eee; border-bottom:1px solid #000; font-weight:bold; letter-spacing:1px;">
+            {'TAX INVOICE' if is_gst else ('QUOTATION' if is_quote else 'ESTIMATE / BILL OF SUPPLY')}
+        </div>
+        
+        <div style="display:flex; border-bottom:1px solid #000;">
+            <div style="width:60%; padding:10px; border-right:1px solid #000; font-size:13px; line-height:1.4;">
+                <b style="text-decoration:underline;">BILLED TO:</b><br>
+                <b>{data['cust']}</b><br>
+                Phone: {data['phone']}
                 {cust_gst_display}
                 {address_display}
             </div>
-            <div style="width:38%; border:1px solid #000; padding:10px; line-height:1.6;">
-                <b>Invoice No:</b> {data['inv']}<br>
-                <b>Date:</b> {data['date']}
+            
+            <div style="width:40%; padding:10px; font-size:13px;">
+                <div style="margin-bottom:12px;"> <b>Invoice No:</b> <span style="font-weight:bold; font-size:14px;">{data['inv']}</span>
+                </div>
+                <div>
+                    <b>Date:</b> {data['date']}
+                </div>
+                <div style="margin-top:5px;">
+                    <b>Mode:</b> {data.get('mode','')}
+                </div>
             </div>
         </div>
 
-        <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px; border:1px solid #000;">
+        <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
             <thead>
-                <tr style="background-color:#f2f2f2;">
-                    <th style="border:1px solid #000; padding:8px;">Sr.</th>
-                    <th style="border:1px solid #000; padding:8px;">Description</th>
-                    <th style="border:1px solid #000; padding:8px;">Code</th>
-                    {'<th style="border:1px solid #000; padding:8px;">HSN</th>' if is_gst else ''}
-                    <th style="border:1px solid #000; padding:8px;">Qty</th>
-                    <th style="border:1px solid #000; padding:8px;">Rate</th>
-                    <th style="border:1px solid #000; padding:8px;">Disc</th>
-                    {'<th style="border:1px solid #000; padding:8px;">Taxable</th><th style="border:1px solid #000; padding:8px;">CGST</th><th style="border:1px solid #000; padding:8px;">SGST</th>' if is_gst else ''}
-                    <th style="border:1px solid #000; padding:8px;">Total</th>
+                <tr>
+                    <th style="{style_th} width:5%;">Sr.</th>
+                    <th style="{style_th} width:35%;">Description</th>
+                    <th style="{style_th}">Code</th>
+                    {hsn_header}
+                    <th style="{style_th}">Qty</th>
+                    <th style="{style_th}">Rate</th>
+                    <th style="{style_th}">Disc</th>
+                    {gst_headers}
+                    {last_col_header}
                 </tr>
             </thead>
-            <tbody>{rows}</tbody>
-            <tfoot>{gst_section}</tfoot>
+            <tbody>
+                {rows}
+            </tbody>
+            <tfoot>
+                {gst_section}
+                <tr style="background-color:#eee; border-top:1px solid #000; border-bottom:1px solid #000;">
+                    <td colspan="{10 if is_gst else 6}" style="text-align:right; padding:8px; font-size:14px; border-right:1px solid #000;"><b>GRAND TOTAL:</b></td>
+                    <td style="padding:8px; font-size:15px; font-weight:bold;">₹ {total:,.2f}</td>
+                </tr>
+            </tfoot>
         </table>
         
-        {payment_box}
-
-        <div style="margin-top:30px; display:flex; justify-content:space-between; font-size:11px;">
-            <div style="width:60%; border:1px solid #000; padding:10px;">
-                <b>TERMS & CONDITIONS:</b>
-                <ol style="margin:5px 0 10px 15px; padding:0;">
-                    <li>Subject to Aurangabad jurisdiction only.</li>
-                    <li>Loading/Unloading/Transport charges extra.</li>
-                    <li>Once sold cannot be cancelled or returned.</li>
-                </ol>
-                <hr>
-                <b>BANK DETAILS:</b><br>
-                Name: {BANK_DETAILS['Name']}<br>
-                Acc No: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']}<br>
-                Branch: {BANK_DETAILS['Branch']}
+        <div style="display:flex; border-bottom:1px solid #000; text-align:center; font-size:13px;">
+            <div style="width:33%; padding:8px; border-right:1px solid #000;">
+                Grand Total<br><b>₹ {total:,.2f}</b>
             </div>
-            <div style="width:35%; border:1px solid #000; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
-                <p><b>For SUMEET ENTERPRISES</b></p>
+            <div style="width:33%; padding:8px; border-right:1px solid #000;">
+                Paid Amount<br><b style="color:green;">₹ {safe_float(data.get('paid',0)):,.2f}</b>
+            </div>
+            <div style="width:33%; padding:8px;">
+                Balance Due<br><b style="color:red;">₹ {safe_float(data.get('bal',0)):,.2f}</b>
+            </div>
+        </div>
+
+        <div style="display:flex; font-size:11px;">
+            <div style="width:65%; padding:10px; border-right:1px solid #000;">
+                <b>TERMS & CONDITIONS:</b>
+                <ol style="margin:5px 0 0 15px; padding:0;">
+                    <li>Subject to Aurangabad jurisdiction only.</li>
+                    <li>Goods once sold will not be taken back.</li>
+                    <li>Interest @ 24% p.a. charged if bill not paid on due date.</li>
+                </ol>
+                {bank_html}
+            </div>
+            <div style="width:35%; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
+                <b>For SUMEET ENTERPRISES</b>
                 <br><br><br>
-                <p style="border-top:1px dashed #000; display:inline-block; width:80%;">Authorised Signatory</p>
+                <div style="border-top:1px dashed #000; width:80%; margin:0 auto;">Authorised Signatory</div>
             </div>
         </div>
     </div>
     """
     components.html(html, height=1150, scrolling=True)
-
-def render_receipt(data):
-    html = f"""
-    <div style="width:210mm; padding:30px; margin:auto; font-family:Helvetica, Arial, sans-serif; border:1px solid #ddd; background:white; color:black;">
-        {get_header_html(False)}
-        
-        <h2 style="text-align:center; border:2px solid #000; width:300px; margin:20px auto; padding:5px;">PAYMENT RECEIPT</h2>
-        
-        <div style="border:1px solid #000; padding:20px; font-size:14px; line-height:2;">
-            <table style="width:100%;">
-                <tr>
-                    <td><b>Receipt Date:</b></td>
-                    <td>{data['date']}</td>
-                    <td><b>Against Invoice:</b></td>
-                    <td>{data['inv']}</td>
-                </tr>
-                <tr>
-                    <td><b>Received From:</b></td>
-                    <td colspan="3" style="border-bottom:1px dotted #000;">{data['cust']}</td>
-                </tr>
-                <tr>
-                    <td><b>Payment Mode:</b></td>
-                    <td>{data['mode']}</td>
-                    <td><b>Amount Received:</b></td>
-                    <td style="font-size:18px; font-weight:bold;">₹ {data['amt']:,.2f}</td>
-                </tr>
-            </table>
-            
-            <br>
-            <div style="border:1px dashed #000; padding:15px; background-color:#f9f9f9; text-align:center;">
-                <p style="margin:0;"><b>Remaining Balance Amount:</b></p>
-                <h1 style="margin:5px 0; color:red;">₹ {data['bal']:,.2f}</h1>
-            </div>
-        </div>
-        
-        <div style="margin-top:50px; text-align:right;">
-            <p><b>For SUMEET ENTERPRISES</b></p>
-            <br><br>
-            <p>Authorised Signatory</p>
-        </div>
-    </div>
-    """
-    components.html(html, height=800, scrolling=True)
 
 # --- MAIN APP START ---
 if not check_login(): st.stop()
@@ -810,6 +803,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
