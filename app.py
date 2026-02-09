@@ -11,7 +11,7 @@ st.set_page_config(page_title="NEXUS ERP | Cloud WMS", layout="wide", page_icon=
 
 # DEFINING LOCATIONS & DATA
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
-SALESMEN = ["Owner", "Manager", "Salesman 1", "Salesman 2"]
+SALESMEN = ["Owner", "NISHIKANT", "MAYUR", "JADHAV SIR", "MASKE SIR", "LAUTE SIR", "ABDUL BHAI", "PRALHAD", "GONDIKAR SIR" ]
 
 # OPENING BALANCE MAPPING
 OPENING_BAL_COLS = {
@@ -629,5 +629,6 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
