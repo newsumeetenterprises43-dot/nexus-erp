@@ -382,7 +382,7 @@ def render_invoice(data, bill_type="Non-GST"):
         </div>
         
         <div style="text-align:center; padding:5px; background-color:#eee; border-bottom:1px solid #000; font-weight:bold; letter-spacing:1px;">
-            {'TAX INVOICE' if is_gst else ('QUOTATION' if is_quote else 'ESTIMATE / BILL OF SUPPLY')}
+            {'TAX INVOICE' if is_gst else ('QUOTATION' if is_quote else 'ESTIMATE')}
         </div>
         
         <div style="display:flex; border-bottom:1px solid #000;">
@@ -852,6 +852,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
