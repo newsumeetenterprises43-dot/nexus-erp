@@ -15,21 +15,22 @@ st.set_page_config(page_title="NEW SUMEET ENTERPRISES", layout="wide", page_icon
 TERMS_AND_CONDITIONS = {
     "GST": [
         "Subject to CH. Sambhajinagar jurisdiction only.",
-        "Goods once sold will not be taken back.",
-        "Interest @ 24% p.a. charged if bill not paid on due date.",
+        "Goods once sold will not be taken back or exchanged.",
+        "Goods must be collected within 10 days of booking, later no complaints would be entertained.",
         "Warranty as per company policy only."
     ],
     "Estimate": [
         "Subject to CH. Sambhajinagar jurisdiction.",
-        "Goods once sold will not be taken back.",
-        "No Guarantee/Warranty on this item.",
-        "Goods must be collected within 10 days of booking."
+        "Goods once sold will not be taken back or exchanged.",
+        "Company/Brand doesn't provide any guarantee/warranty, neither do we.",
+        "Goods must be collected within 10 days of booking, later no complaints would be entertained."
     ],
     "Quote": [
-        "Quotation valid for 30 days only.",
-        "Transport and Loading charges extra.",
-        "50% Advance payment required for order confirmation.",
-        "Delivery subject to availability."
+        "Subject to CH. Sambhajinagar jurisdiction only.",
+        "GST, Transport and Loading charges extra.",
+        "Quotation valid for seven days only, prices may change later.",
+        "50% Advance payment required for order booking.",
+        "Conditions apply."
     ]
 }
 
@@ -396,7 +397,7 @@ def render_invoice(data, bill_type="Non-GST"):
         billed_to_header = f"""<b>Name:</b> {data['cust']}<br>Phone: {data['phone']}"""
     else:
         right_header = f"""<div style="margin-bottom:12px;"> <b>Invoice No:</b> <span style="font-weight:bold; font-size:14px;">{data['inv']}</span></div><div><b>Date:</b> {data['date']}</div><div style="margin-top:5px;"><b>Mode:</b> {data.get('mode','')}</div>"""
-        billed_to_header = f"""<b style="text-decoration:underline;">BILLED TO:</b><br><b>{data['cust']}</b><br>Phone: {data['phone']}{cust_gst_display}{address_display}"""
+        billed_to_header = f"""<b style="text-decoration:underline;">Customer Details:</b><br><b>{data['cust']}</b><br>Phone: {data['phone']}{cust_gst_display}{address_display}"""
 
     # Amount In Words
     amt_words = num_to_words(int(total)) + " Only"
@@ -866,6 +867,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
