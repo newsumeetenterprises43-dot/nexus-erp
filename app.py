@@ -20,7 +20,7 @@ TERMS_AND_CONDITIONS = {
         "Warranty as per company policy only."
     ],
     "Estimate": [
-        "Subject to CH. Sambhajinagar jurisdiction.",
+        "Subject to CH. Sambhajinagar jurisdiction only.",
         "Goods once sold will not be taken back or exchanged.",
         "Company/Brand doesn't provide any guarantee/warranty, neither do we.",
         "Goods must be collected within 10 days of booking, later no complaints would be entertained."
@@ -397,7 +397,7 @@ def render_invoice(data, bill_type="Non-GST"):
         billed_to_header = f"""<b>Name:</b> {data['cust']}<br>Phone: {data['phone']}"""
     else:
         right_header = f"""<div style="margin-bottom:12px;"> <b>Invoice No:</b> <span style="font-weight:bold; font-size:14px;">{data['inv']}</span></div><div><b>Date:</b> {data['date']}</div><div style="margin-top:5px;"><b>Mode:</b> {data.get('mode','')}</div>"""
-        billed_to_header = f"""<b style="text-decoration:underline;">Customer Details:</b><br><b>{data['cust']}</b><br>Phone: {data['phone']}{cust_gst_display}{address_display}"""
+        billed_to_header = f"""<b style="text-decoration:underline;">Customer Details:</b><br><b>Name: {data['cust']}</b><br>Phone: {data['phone']}{address_display}{cust_gst_display}"""
 
     # Amount In Words
     amt_words = num_to_words(int(total)) + " Only"
@@ -867,6 +867,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
