@@ -11,7 +11,6 @@ import math
 st.set_page_config(page_title="NEW SUMEET ENTERPRISES", layout="wide", page_icon="☁️")
 
 # --- EDITABLE TERMS AND CONDITIONS ---
-# You can change the text inside the quotes "" below.
 TERMS_AND_CONDITIONS = {
     "GST": [
         "Subject to CH. Sambhajinagar jurisdiction only.",
@@ -185,19 +184,14 @@ def save_entry(sheet_name, data_dict):
         sh = connect_to_gsheet()
         try: ws = sh.worksheet(sheet_name)
         except: ws = sh.add_worksheet(sheet_name, 100, 20); ws.append_row(list(data_dict.keys()))
-        
         headers = ws.row_values(1)
-        if not headers:
-            headers = list(data_dict.keys())
-            ws.append_row(headers)
-
+        if not headers: ws.append_row(list(data_dict.keys()))
         row_to_append = []
         for h in headers:
             val = ""
             h_clean = h.lower().replace(" ", "").strip()
             for k, v in data_dict.items():
-                if k.lower().replace(" ", "").strip() == h_clean:
-                    val = str(v); break
+                if k.lower().replace(" ", "").strip() == h_clean: val = str(v); break
             row_to_append.append(val)
         ws.append_row(row_to_append)
         clear_cache()
@@ -205,41 +199,23 @@ def save_entry(sheet_name, data_dict):
     except Exception as e: st.error(f"Save Error: {e}"); return False
 
 def update_product_master(code, name, cp, sp):
-    """
-    Robust master update. Tries to find and update, if not found, creates new.
-    """
     try:
         sh = connect_to_gsheet(); ws = sh.worksheet("Products")
-        
         try:
             cell = ws.find(str(code))
-            # Update Existing
             headers = ws.row_values(1)
             def get_col_idx(name_list):
                 for i, h in enumerate(headers):
                     if h.lower().replace(" ","") in name_list: return i + 1
                 return None
-            
             idx_name = get_col_idx(["productname", "product_name"])
             idx_cp = get_col_idx(["costprice", "cp"])
             idx_sp = get_col_idx(["sellingprice", "sp", "mrp"])
-            
             if idx_name: ws.update_cell(cell.row, idx_name, name)
             if idx_cp: ws.update_cell(cell.row, idx_cp, float(cp))
             if idx_sp: ws.update_cell(cell.row, idx_sp, float(sp))
-
         except Exception:
-            # Create New
-            new_prod_data = {
-                "NSP Code": code, 
-                "Product Name": name, 
-                "Cost Price": cp, 
-                "Selling Price": sp,
-                "Op_Shop": 0, "Op_Terrace": 0, "Op_Godown": 0
-            }
-            # Manually append if save_entry is complex logic, or just use save_entry
-            save_entry("Products", new_prod_data)
-            
+            save_entry("Products", {"NSP Code": code, "Product Name": name, "Cost Price": cp, "Selling Price": sp, "Op_Shop": 0, "Op_Terrace": 0, "Op_Godown": 0})
         clear_cache()
         return True
     except Exception as e: 
@@ -271,12 +247,9 @@ def delete_entry(sheet_name, id_col, id_val):
         sh = connect_to_gsheet(); ws = sh.worksheet(sheet_name)
         cell = ws.find(str(id_val))
         if cell:
-            # If multiple entries (like Invoice items), find all
             cell_list = ws.findall(str(id_val))
-            # Delete from bottom up to avoid index shifting
             rows_to_delete = sorted([c.row for c in cell_list], reverse=True)
-            for r in rows_to_delete:
-                ws.delete_rows(r)
+            for r in rows_to_delete: ws.delete_rows(r)
             clear_cache(); return True
         else: return False
     except: return False
@@ -371,27 +344,20 @@ def render_invoice(data, bill_type="Non-GST"):
     if is_gst:
         gst_section = f"""<tr style="border-top:1px solid #000;"><td colspan="8" style="text-align:right; padding:5px; border-right:1px solid #000;"><b>CGST (9%):</b></td><td colspan="3" style="text-align:right; padding:5px;">{gst_tot/2:,.2f}</td></tr><tr><td colspan="8" style="text-align:right; padding:5px; border-right:1px solid #000;"><b>SGST (9%):</b></td><td colspan="3" style="text-align:right; padding:5px;">{gst_tot/2:,.2f}</td></tr>"""
 
-    # --- DYNAMIC TERMS SELECTION ---
     if is_gst:
-        terms_list = TERMS_AND_CONDITIONS["GST"]
-        doc_title = "TAX INVOICE"
+        terms_list = TERMS_AND_CONDITIONS["GST"]; doc_title = "TAX INVOICE"
     elif is_quote:
-        terms_list = TERMS_AND_CONDITIONS["Quote"]
-        doc_title = "QUOTATION"
+        terms_list = TERMS_AND_CONDITIONS["Quote"]; doc_title = "QUOTATION"
     else:
-        terms_list = TERMS_AND_CONDITIONS["Estimate"]
-        doc_title = "ESTIMATE"
+        terms_list = TERMS_AND_CONDITIONS["Estimate"]; doc_title = "ESTIMATE"
 
     terms_html = "".join([f"<li>{t}</li>" for t in terms_list])
+    bank_html = f"""<div style="margin-top:10px; padding-top:5px; border-top:1px solid #000;"><b>BANK DETAILS:</b> {BANK_DETAILS['Name']} | Acc: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']} | Branch: {BANK_DETAILS['Branch']}</div>""" if (is_gst or is_quote) else ""
 
-    bank_html = ""
-    if is_gst or is_quote:
-        bank_html = f"""<div style="margin-top:10px; padding-top:5px; border-top:1px solid #000;"><b>BANK DETAILS:</b> {BANK_DETAILS['Name']} | Acc: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']} | Branch: {BANK_DETAILS['Branch']}</div>"""
-
-    cust_gst_display = f"<br><b>GSTIN:</b> {data.get('cust_gst','')}" if data.get('cust_gst') and is_gst else ""
+    # NEW: GSTIN IN DISTINCT BOX FOR TAX INVOICE
+    cust_gst_display = f"""<div style="margin-top:5px; border:1px solid #000; padding:3px; display:inline-block; font-weight:bold;">GSTIN: {data.get('cust_gst','')}</div>""" if data.get('cust_gst') and is_gst else ""
     address_display = f"<br><b>Address:</b> {data.get('address','')}" if data.get('address') else ""
     
-    # Conditional Headers
     if is_quote:
         right_header = f"""<div><b>Date:</b> {data['date']}</div>"""
         billed_to_header = f"""<b>Name:</b> {data['cust']}<br>Phone: {data['phone']}"""
@@ -399,9 +365,7 @@ def render_invoice(data, bill_type="Non-GST"):
         right_header = f"""<div style="margin-bottom:12px;"> <b>Invoice No:</b> <span style="font-weight:bold; font-size:14px;">{data['inv']}</span></div><div><b>Date:</b> {data['date']}</div><div style="margin-top:5px;"><b>Mode:</b> {data.get('mode','')}</div>"""
         billed_to_header = f"""<b style="text-decoration:underline;">Customer Details:</b><br><b>Name: {data['cust']}</b><br>Phone: {data['phone']}{address_display}{cust_gst_display}"""
 
-    # Amount In Words
     amt_words = num_to_words(int(total)) + " Only"
-
     gst_headers = f'<th style="{style_th}">Taxable</th><th style="{style_th}">CGST</th><th style="{style_th}">SGST</th>' if is_gst else ''
     hsn_header = f'<th style="{style_th}">HSN</th>' if is_gst else ''
     last_col_header = f'<th style="padding:5px; font-weight:bold; background-color:#eee; font-size:12px; border-bottom:1px solid #000;">Total</th>'
@@ -415,44 +379,25 @@ def render_invoice(data, bill_type="Non-GST"):
             <div style="width:40%; padding:10px; font-size:13px;">{right_header}</div>
         </div>
         <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
-            <thead>
-                <tr>
-                    <th style="{style_th} width:5%;">Sr.</th><th style="{style_th} width:35%;">Description</th><th style="{style_th}">Code</th>
-                    {hsn_header}<th style="{style_th}">Qty</th><th style="{style_th}">Rate</th><th style="{style_th}">Disc</th>
-                    {gst_headers}{last_col_header}
-                </tr>
-            </thead>
+            <thead><tr><th style="{style_th} width:5%;">Sr.</th><th style="{style_th} width:35%;">Description</th><th style="{style_th}">Code</th>{hsn_header}<th style="{style_th}">Qty</th><th style="{style_th}">Rate</th><th style="{style_th}">Disc</th>{gst_headers}{last_col_header}</tr></thead>
             <tbody>{rows}</tbody>
-            <tfoot>
-                {gst_section}
-                <tr style="background-color:#eee; border-top:1px solid #000; border-bottom:1px solid #000;">
-                    <td colspan="{10 if is_gst else 6}" style="text-align:right; padding:8px; font-size:14px; border-right:1px solid #000;"><b>GRAND TOTAL:</b></td>
-                    <td style="padding:8px; font-size:15px; font-weight:bold;">₹ {total:,.2f}</td>
-                </tr>
-            </tfoot>
+            <tfoot>{gst_section}<tr style="background-color:#eee; border-top:1px solid #000; border-bottom:1px solid #000;"><td colspan="{10 if is_gst else 6}" style="text-align:right; padding:8px; font-size:14px; border-right:1px solid #000;"><b>GRAND TOTAL:</b></td><td style="padding:8px; font-size:15px; font-weight:bold;">₹ {total:,.2f}</td></tr></tfoot>
         </table>
-        
-        <div style="padding:10px; border-bottom:1px solid #000; font-size:13px;">
-            <b>Amount in Words:</b> {amt_words}
-        </div>
-
+        <div style="padding:10px; border-bottom:1px solid #000; font-size:13px;"><b>Amount in Words:</b> {amt_words}</div>
         <div style="display:flex; border-bottom:1px solid #000; text-align:center; font-size:13px;">
             <div style="width:33%; padding:8px; border-right:1px solid #000;">Grand Total<br><b>₹ {total:,.2f}</b></div>
             <div style="width:33%; padding:8px; border-right:1px solid #000;">Paid Amount<br><b style="color:green;">₹ {safe_float(data.get('paid',0)):,.2f}</b></div>
             <div style="width:33%; padding:8px;">Balance Due<br><b style="color:red;">₹ {safe_float(data.get('bal',0)):,.2f}</b></div>
         </div>
-
         <div style="display:flex; font-size:11px;">
             <div style="width:65%; padding:10px; border-right:1px solid #000;">
-                <b>TERMS & CONDITIONS:</b>
-                <ol style="margin:5px 0 0 15px; padding:0;">{terms_html}</ol>
-                {bank_html}
+                <b>TERMS & CONDITIONS:</b><ol style="margin:5px 0 0 15px; padding:0;">{terms_html}</ol>{bank_html}
             </div>
             <div style="width:35%; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
-                <b>For SUMEET ENTERPRISES</b><br><br><br>
-                <div style="border-top:1px dashed #000; width:80%; margin:0 auto;">Authorised Signatory</div>
+                <b>For SUMEET ENTERPRISES</b><br><br><br><div style="border-top:1px dashed #000; width:80%; margin:0 auto;">Authorised Signatory</div>
             </div>
         </div>
+        <div style="text-align:center; padding:10px; border-top:1px solid #000; font-style:italic; font-size:12px;">*** Thank You - Visit Again ***<br><br>End of Bill</div>
     </div>
     """
     components.html(html, height=1150, scrolling=True)
@@ -477,6 +422,7 @@ def render_receipt(data):
         <div style="margin-top:50px; text-align:right;">
             <p><b>For SUMEET ENTERPRISES</b></p><br><br><p>Authorised Signatory</p>
         </div>
+        <div style="text-align:center; margin-top:20px; font-style:italic; font-size:12px;">*** Thank You - Visit Again ***</div>
     </div>
     """
     components.html(html, height=800, scrolling=True)
@@ -564,8 +510,10 @@ elif menu == "Sales":
                 st.write("### 🛒 Cart")
                 st.dataframe(pd.DataFrame(st.session_state.cart))
                 if st.button("Clear Cart"): st.session_state.cart=[]
-                gt = sum(x['Total'] for x in st.session_state.cart)
-                st.markdown(f"### Total: ₹{gt:,.2f}")
+                
+                gt_taxable = sum(x['Total'] for x in st.session_state.cart)
+                st.markdown(f"### Item Total (Taxable): ₹{gt_taxable:,.2f}")
+                
                 with st.form("checkout"):
                     st.write("#### 📝 Customer Details")
                     c1, c2 = st.columns(2)
@@ -574,22 +522,64 @@ elif menu == "Sales":
                     cust_addr = st.text_area("Customer Address (Optional)", height=68)
                     c_gst_1, c_gst_2 = st.columns(2)
                     cust_gst = c_gst_1.text_input("Customer GSTIN (Optional)")
-                    mode = c_gst_2.selectbox("Mode", ["Cash","UPI942", "UPI03", "UPI681", "PHONEPE", "Card"])
+                    
                     st.write("#### 🧾 Invoice Details")
                     c3, c4 = st.columns(2)
                     default_inv = f"INV-{st.session_state.inv_counter}"
                     inv_input = c3.text_input("Inv No (Edit to Override)", value=default_inv)
                     b_type = c4.radio("Bill Type", ["Non-GST", "GST"], horizontal=True)
-                    paid = st.number_input("Amount Paid Now", value=gt)
+                    
+                    # DYNAMIC TOTAL CALCULATION
+                    final_bill_amount = gt_taxable
+                    if b_type == "GST":
+                        final_bill_amount = gt_taxable * 1.18
+                        st.info(f"Adding 18% GST. Final Bill Amount: ₹{final_bill_amount:,.2f}")
+                    
+                    # SPLIT PAYMENT LOGIC
+                    st.write("#### 💳 Payment")
+                    use_split = st.checkbox("Split Payment? (e.g. Cash + UPI)")
+                    
+                    mode_val = ""
+                    paid_val = 0.0
+                    
+                    if use_split:
+                        sp_c1, sp_c2, sp_c3, sp_c4 = st.columns(4)
+                        amt1 = sp_c1.number_input("Amount 1", 0.0)
+                        mod1 = sp_c2.selectbox("Mode 1", ["Cash", "UPI", "Card"])
+                        rem_bal = final_bill_amount - amt1
+                        amt2 = sp_c3.number_input("Amount 2 (Remaining)", value=rem_bal)
+                        mod2 = sp_c4.selectbox("Mode 2", ["UPI", "Cash", "Card"])
+                        paid_val = amt1 + amt2
+                        mode_val = f"{mod1}: {amt1} + {mod2}: {amt2}"
+                    else:
+                        mode_val = st.selectbox("Payment Mode", ["Cash", "UPI", "Card"])
+                        paid_val = st.number_input("Amount Paid Now", value=final_bill_amount)
+                    
                     st.caption("Use 'TAB' key to navigate. 'ENTER' will submit form.")
                     submitted = st.form_submit_button("💾 Save Bill")
+                
                 if submitted:
                     d = datetime.now().strftime("%Y-%m-%d")
-                    bal = gt - paid
+                    # Calculate Balance based on FINAL BILL AMOUNT (which includes GST if selected)
+                    bal = final_bill_amount - paid_val
                     final_inv = inv_input
+                    
                     for x in st.session_state.cart:
-                        save_entry("Sales", {"Invoice No":final_inv, "Date":d, "Customer Name":cust, "Phone":ph, "NSP Code":x['NSP Code'], "Product Name":x['Product Name'], "Qty":x['Qty'], "Price":x['Price'], "Discount":x['Discount'], "Total":x['Total'], "Paid":paid, "Balance":bal, "Mode":mode, "Bill Type":b_type, "Location":x['Location'], "Salesman": salesman, "Customer GST": cust_gst, "Address": cust_addr})
-                    st.session_state.print_data = {"inv":final_inv, "cust":cust, "phone":ph, "date":d, "items":st.session_state.cart, "total":gt, "paid":paid, "bal":bal, "mode":mode, "loc_source":loc_s, "bill_type":b_type, "cust_gst": cust_gst, "address": cust_addr, "salesman": salesman}
+                        save_entry("Sales", {
+                            "Invoice No":final_inv, "Date":d, "Customer Name":cust, "Phone":ph,
+                            "NSP Code":x['NSP Code'], "Product Name":x['Product Name'],
+                            "Qty":x['Qty'], "Price":x['Price'], "Discount":x['Discount'],
+                            "Total":x['Total'], "Paid":paid_val, "Balance":bal, 
+                            "Mode":mode_val, "Bill Type":b_type, "Location":x['Location'], 
+                            "Salesman": salesman, "Customer GST": cust_gst, "Address": cust_addr
+                        })
+                    
+                    st.session_state.print_data = {
+                        "inv":final_inv, "cust":cust, "phone":ph, "date":d, "items":st.session_state.cart,
+                        "total":final_bill_amount, "paid":paid_val, "bal":bal, "mode":mode_val, 
+                        "loc_source":loc_s, "bill_type":b_type, "cust_gst": cust_gst, 
+                        "address": cust_addr, "salesman": salesman
+                    }
                     st.session_state.cart = []
                     log_action("Sale", final_inv)
                     st.rerun()
@@ -710,10 +700,20 @@ elif menu == "Purchase":
                         save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": st.session_state.p_cp * qty, "Status": "Pending", "Notes": f"New: {code}"})
                         st.success("New Product Registered & Stocked!"); st.rerun()
     with t2:
+        # FIXED: MERGE LOGIC FOR PURCHASE HISTORY
         df_p = load_data("Purchase")
         df_prods = load_data("Products")
-        # Merge for better display if needed, but we now save names directly in purchase
-        render_filtered_table(df_p, "purch")
+        
+        if not df_p.empty and not df_prods.empty:
+            # Drop columns if they already exist in Purchase to avoid duplicates before merging
+            cols_to_drop = [c for c in ['Product Name', 'Cost Price', 'Selling Price'] if c in df_p.columns]
+            df_p_clean = df_p.drop(columns=cols_to_drop)
+            
+            # Merge to fetch latest details from Master
+            df_merged = pd.merge(df_p_clean, df_prods[['NSP Code', 'Product Name', 'Cost Price', 'Selling Price']], on='NSP Code', how='left')
+            render_filtered_table(df_merged, "purch")
+        else:
+            render_filtered_table(df_p, "purch")
         
         if not df_p.empty:
             st.divider()
@@ -867,9 +867,6 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
-
-
-
 
 
 
