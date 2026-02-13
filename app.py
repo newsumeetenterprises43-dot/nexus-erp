@@ -36,6 +36,7 @@ TERMS_AND_CONDITIONS = {
 # DEFINING LOCATIONS & DATA
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
 SALESMEN = ["Owner", "NISHIKANT", "MAYUR", "JADHAV SIR", "MASKE SIR", "LAUTE SIR", "ABDUL BHAI", "PRALHAD", "GONDIKAR SIR"]
+PAYMENT_MODES = ["Cash", "UPI942", "UPI03", "UPI681", "PHONEPE", "Card"]
 
 # BANK DETAILS
 BANK_DETAILS = {
@@ -242,6 +243,19 @@ def update_balance(inv_no, amt_paid):
         else: return False
     except: return False
 
+def delete_entry_by_row(sheet_name, row_idx):
+    """Deletes a specific row index."""
+    try:
+        sh = connect_to_gsheet(); ws = sh.worksheet(sheet_name)
+        # Row index in gspread is 1-based. 
+        # The dataframe index usually maps to row+2 (header is 1).
+        # We need to be careful. The passed row_idx should be the GSheet row number.
+        ws.delete_rows(row_idx)
+        clear_cache(); return True
+    except Exception as e:
+        st.error(f"Delete Error: {e}")
+        return False
+
 def delete_entry(sheet_name, id_col, id_val):
     try:
         sh = connect_to_gsheet(); ws = sh.worksheet(sheet_name)
@@ -354,7 +368,6 @@ def render_invoice(data, bill_type="Non-GST"):
     terms_html = "".join([f"<li>{t}</li>" for t in terms_list])
     bank_html = f"""<div style="margin-top:10px; padding-top:5px; border-top:1px solid #000;"><b>BANK DETAILS:</b> {BANK_DETAILS['Name']} | Acc: {BANK_DETAILS['Account']} | IFSC: {BANK_DETAILS['IFSC']} | Branch: {BANK_DETAILS['Branch']}</div>""" if (is_gst or is_quote) else ""
 
-    # NEW: GSTIN IN DISTINCT BOX FOR TAX INVOICE
     cust_gst_display = f"""<div style="margin-top:5px; border:1px solid #000; padding:3px; display:inline-block; font-weight:bold;">GSTIN: {data.get('cust_gst','')}</div>""" if data.get('cust_gst') and is_gst else ""
     address_display = f"<br><b>Address:</b> {data.get('address','')}" if data.get('address') else ""
     
@@ -514,14 +527,35 @@ elif menu == "Sales":
                 gt_taxable = sum(x['Total'] for x in st.session_state.cart)
                 st.markdown(f"### Item Total (Taxable): ₹{gt_taxable:,.2f}")
                 
+                # Payment Mode Logic OUTSIDE Form for dynamic updates
+                st.markdown("#### 💳 Payment Details")
+                use_split = st.checkbox("Enable Split Payment (e.g. Cash + UPI)")
+                
+                mode_val = ""
+                paid_val = 0.0
+                split_final = 0.0
+                
+                if use_split:
+                    sp_c1, sp_c2, sp_c3, sp_c4 = st.columns(4)
+                    amt1 = sp_c1.number_input("Amount 1", 0.0)
+                    mod1 = sp_c2.selectbox("Mode 1", PAYMENT_MODES)
+                    amt2 = sp_c3.number_input("Amount 2", 0.0)
+                    mod2 = sp_c4.selectbox("Mode 2", PAYMENT_MODES)
+                    split_final = amt1 + amt2
+                    mode_val = f"{mod1}: {amt1} + {mod2}: {amt2}"
+                else:
+                    pay_mode = st.selectbox("Payment Mode", PAYMENT_MODES)
+                    paid_input = st.number_input("Amount Paid", value=gt_taxable)
+                    mode_val = pay_mode
+                    paid_val = paid_input
+
                 with st.form("checkout"):
                     st.write("#### 📝 Customer Details")
                     c1, c2 = st.columns(2)
                     cust = c1.text_input("Customer Name")
                     ph = c2.text_input("Phone")
                     cust_addr = st.text_area("Customer Address (Optional)", height=68)
-                    c_gst_1, c_gst_2 = st.columns(2)
-                    cust_gst = c_gst_1.text_input("Customer GSTIN (Optional)")
+                    cust_gst = st.text_input("Customer GSTIN (Optional)")
                     
                     st.write("#### 🧾 Invoice Details")
                     c3, c4 = st.columns(2)
@@ -529,39 +563,19 @@ elif menu == "Sales":
                     inv_input = c3.text_input("Inv No (Edit to Override)", value=default_inv)
                     b_type = c4.radio("Bill Type", ["Non-GST", "GST"], horizontal=True)
                     
-                    # DYNAMIC TOTAL CALCULATION
-                    final_bill_amount = gt_taxable
-                    if b_type == "GST":
-                        final_bill_amount = gt_taxable * 1.18
-                        st.info(f"Adding 18% GST. Final Bill Amount: ₹{final_bill_amount:,.2f}")
-                    
-                    # SPLIT PAYMENT LOGIC
-                    st.write("#### 💳 Payment")
-                    use_split = st.checkbox("Split Payment? (e.g. Cash + UPI)")
-                    
-                    mode_val = ""
-                    paid_val = 0.0
-                    
-                    if use_split:
-                        sp_c1, sp_c2, sp_c3, sp_c4 = st.columns(4)
-                        amt1 = sp_c1.number_input("Amount 1", 0.0)
-                        mod1 = sp_c2.selectbox("Mode 1", ["Cash", "UPI", "Card"])
-                        rem_bal = final_bill_amount - amt1
-                        amt2 = sp_c3.number_input("Amount 2 (Remaining)", value=rem_bal)
-                        mod2 = sp_c4.selectbox("Mode 2", ["UPI", "Cash", "Card"])
-                        paid_val = amt1 + amt2
-                        mode_val = f"{mod1}: {amt1} + {mod2}: {amt2}"
-                    else:
-                        mode_val = st.selectbox("Payment Mode", ["Cash", "UPI", "Card"])
-                        paid_val = st.number_input("Amount Paid Now", value=final_bill_amount)
-                    
                     st.caption("Use 'TAB' key to navigate. 'ENTER' will submit form.")
                     submitted = st.form_submit_button("💾 Save Bill")
                 
                 if submitted:
+                    final_bill_amount = gt_taxable
+                    if b_type == "GST":
+                        final_bill_amount = gt_taxable * 1.18
+                    
+                    # Determine final paid amount based on split or single
+                    final_paid = split_final if use_split else paid_val
+                    
                     d = datetime.now().strftime("%Y-%m-%d")
-                    # Calculate Balance based on FINAL BILL AMOUNT (which includes GST if selected)
-                    bal = final_bill_amount - paid_val
+                    bal = final_bill_amount - final_paid
                     final_inv = inv_input
                     
                     for x in st.session_state.cart:
@@ -569,14 +583,14 @@ elif menu == "Sales":
                             "Invoice No":final_inv, "Date":d, "Customer Name":cust, "Phone":ph,
                             "NSP Code":x['NSP Code'], "Product Name":x['Product Name'],
                             "Qty":x['Qty'], "Price":x['Price'], "Discount":x['Discount'],
-                            "Total":x['Total'], "Paid":paid_val, "Balance":bal, 
+                            "Total":x['Total'], "Paid":final_paid, "Balance":bal, 
                             "Mode":mode_val, "Bill Type":b_type, "Location":x['Location'], 
                             "Salesman": salesman, "Customer GST": cust_gst, "Address": cust_addr
                         })
                     
                     st.session_state.print_data = {
                         "inv":final_inv, "cust":cust, "phone":ph, "date":d, "items":st.session_state.cart,
-                        "total":final_bill_amount, "paid":paid_val, "bal":bal, "mode":mode_val, 
+                        "total":final_bill_amount, "paid":final_paid, "bal":bal, "mode":mode_val, 
                         "loc_source":loc_s, "bill_type":b_type, "cust_gst": cust_gst, 
                         "address": cust_addr, "salesman": salesman
                     }
@@ -630,7 +644,7 @@ elif menu == "Settle Balance":
                     st.info(f"Customer: {cust_name} | Current Balance: ₹{curr_bal}")
                     with st.form("settle_form"):
                         pay_amt = st.number_input("Enter Amount to Pay", 1.0, max_value=float(curr_bal))
-                        pay_mode = st.selectbox("Payment Mode", ["Cash", "UPI", "Card"])
+                        pay_mode = st.selectbox("Payment Mode", PAYMENT_MODES)
                         note = st.text_input("Note (Optional)")
                         if st.form_submit_button("Confirm Payment"):
                             if update_balance(sel_inv_pay, pay_amt):
@@ -694,22 +708,16 @@ elif menu == "Purchase":
                 if not vendor_name or not code or not name: st.error("⚠️ Vendor Name, Code and Product Name are Compulsory!")
                 else:
                     d = datetime.now().strftime("%Y-%m-%d")
-                    # FIXED: Added logic to create product first, then purchase
                     if update_product_master(code, name, st.session_state.p_cp, st.session_state.p_sp):
                         save_entry("Purchase", {"NSP Code": code, "Product Name": name, "Date": d, "Qty": qty, "Location": loc, "Vendor Name": vendor_name, "Cost Price": st.session_state.p_cp, "Selling Price": st.session_state.p_sp})
                         save_entry("Vendor_Payments", {"Payment ID": f"PEND-{int(time.time())}", "Date": d, "Vendor Name": vendor_name, "Amount": st.session_state.p_cp * qty, "Status": "Pending", "Notes": f"New: {code}"})
                         st.success("New Product Registered & Stocked!"); st.rerun()
     with t2:
-        # FIXED: MERGE LOGIC FOR PURCHASE HISTORY
         df_p = load_data("Purchase")
         df_prods = load_data("Products")
-        
         if not df_p.empty and not df_prods.empty:
-            # Drop columns if they already exist in Purchase to avoid duplicates before merging
             cols_to_drop = [c for c in ['Product Name', 'Cost Price', 'Selling Price'] if c in df_p.columns]
             df_p_clean = df_p.drop(columns=cols_to_drop)
-            
-            # Merge to fetch latest details from Master
             df_merged = pd.merge(df_p_clean, df_prods[['NSP Code', 'Product Name', 'Cost Price', 'Selling Price']], on='NSP Code', how='left')
             render_filtered_table(df_merged, "purch")
         else:
@@ -717,11 +725,26 @@ elif menu == "Purchase":
         
         if not df_p.empty:
             st.divider()
-            # Delete Logic
-            del_codes = df_p['NSP Code'].unique()
-            sel_del = st.selectbox("Select Code to Delete Purchase Entries", del_codes)
-            if st.button("Delete All Entries for this Code"):
-                if delete_entry("Purchase", "NSP Code", sel_del):
+            # UNIQUE ID LOGIC FOR DELETION
+            # We create a display string that includes Code + Date + Row Index (implicitly via list index)
+            # Since we can't easily get row ID from GSheets without API call, we rely on finding unique row content.
+            # Best approach: Add a temporary 'Unique_ID' to the dataframe for selection.
+            
+            # Since df_p is raw data, we can use it.
+            # We will use: "Row {i+2}: {Date} | {Code}" (Row i+2 because header is 1, and 0-index)
+            
+            # Create a list of tuples (Display String, Row Index)
+            # Note: Gspread delete_rows takes 1-based index. 
+            # If sheet has header (row 1), data starts at row 2.
+            # df index 0 is row 2.
+            
+            del_options = [f"Row {i+2} | {r['Date']} | {r['NSP Code']}" for i, r in df_p.iterrows()]
+            sel_del_str = st.selectbox("Select Entry to Delete", del_options)
+            
+            if st.button("🗑️ Delete Selected Entry"):
+                # Extract Row Index from string
+                row_idx_to_delete = int(sel_del_str.split("|")[0].replace("Row", "").strip())
+                if delete_entry_by_row("Purchase", row_idx_to_delete):
                     st.success("Deleted!"); st.rerun()
 
 # --- QUOTATIONS ---
@@ -867,8 +890,6 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
-
-
 
 
 
