@@ -36,7 +36,7 @@ TERMS_AND_CONDITIONS = {
 # DEFINING LOCATIONS & DATA
 LOCATIONS = ["Shop", "Terrace Godown", "Big Godown"]
 SALESMEN = ["Owner", "NISHIKANT", "MAYUR", "JADHAV SIR", "MASKE SIR", "LAUTE SIR", "ABDUL BHAI", "PRALHAD", "GONDIKAR SIR"]
-PAYMENT_MODES = ["Cash", "UPI942", "UPI03", "UPI681", "PHONEPE", "Card"]
+PAYMENT_MODES = ["Cash", "UPI942", "UPI03", "UPI681", "PHONEPE", "Debit Card", "Credit Card"]
 
 # BANK DETAILS
 BANK_DETAILS = {
@@ -410,7 +410,7 @@ def render_invoice(data, bill_type="Non-GST"):
                 <b>For SUMEET ENTERPRISES</b><br><br><br><div style="border-top:1px dashed #000; width:80%; margin:0 auto;">Authorised Signatory</div>
             </div>
         </div>
-        <div style="text-align:center; padding:10px; border-top:1px solid #000; font-style:italic; font-size:12px;">*** Thank You - Visit Again ***<br><br>End of Bill</div>
+        <div style="text-align:center; padding:10px; border-top:1px solid #000; font-style:italic; font-size:12px;">*** Thank You - Visit Again ***<br><br></div>
     </div>
     """
     components.html(html, height=1150, scrolling=True)
@@ -444,7 +444,7 @@ def render_receipt(data):
 if not check_login(): st.stop()
 
 with st.sidebar:
-    st.title("⚡ NEXUS ERP")
+    st.title("⚡ NEW SUMEET ENTERPRISES")
     menu = st.radio("Navigation", ["Dashboard", "Sales", "Settle Balance", "Purchase", "Stock Transfer", "Inventory", "Quotations", "Manufacturing", "Vendor Payments", "Products", "Logs"])
     st.divider()
     if st.button("🔄 Refresh Data"): clear_cache(); st.rerun()
@@ -890,6 +890,7 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs")
+
 
 
 
