@@ -200,10 +200,15 @@ def save_entry(sheet_name, data_dict):
     except Exception as e: st.error(f"Save Error: {e}"); return False
 
 def update_product_master(code, name, cp, sp):
+    """
+    CRITICAL FIX: Checks if product exists. If yes, updates it. 
+    If NOT found (raises exception), creates it.
+    """
     try:
         sh = connect_to_gsheet(); ws = sh.worksheet("Products")
         try:
             cell = ws.find(str(code))
+            # If we reach here, product exists -> UPDATE
             headers = ws.row_values(1)
             def get_col_idx(name_list):
                 for i, h in enumerate(headers):
@@ -216,13 +221,19 @@ def update_product_master(code, name, cp, sp):
             if idx_cp: ws.update_cell(cell.row, idx_cp, float(cp))
             if idx_sp: ws.update_cell(cell.row, idx_sp, float(sp))
         except Exception:
-            save_entry("Products", {"NSP Code": code, "Product Name": name, "Cost Price": cp, "Selling Price": sp, "Op_Shop": 0, "Op_Terrace": 0, "Op_Godown": 0})
+            # If find() fails, product is new -> CREATE
+            save_entry("Products", {
+                "NSP Code": code, 
+                "Product Name": name, 
+                "Cost Price": cp, 
+                "Selling Price": sp, 
+                "Op_Shop": 0, "Op_Terrace": 0, "Op_Godown": 0
+            })
         clear_cache()
         return True
     except Exception as e: 
         st.error(f"Master Update Critical Fail: {e}")
         return False
-
 def update_balance(inv_no, amt_paid):
     try:
         sh = connect_to_gsheet(); ws = sh.worksheet("Sales")
@@ -244,12 +255,8 @@ def update_balance(inv_no, amt_paid):
     except: return False
 
 def delete_entry_by_row(sheet_name, row_idx):
-    """Deletes a specific row index."""
     try:
         sh = connect_to_gsheet(); ws = sh.worksheet(sheet_name)
-        # Row index in gspread is 1-based. 
-        # The dataframe index usually maps to row+2 (header is 1).
-        # We need to be careful. The passed row_idx should be the GSheet row number.
         ws.delete_rows(row_idx)
         clear_cache(); return True
     except Exception as e:
@@ -384,38 +391,67 @@ def render_invoice(data, bill_type="Non-GST"):
     last_col_header = f'<th style="padding:5px; font-weight:bold; background-color:#eee; font-size:12px; border-bottom:1px solid #000;">Total</th>'
 
     html = f"""
-    <div style="width:210mm; min-height:297mm; margin:auto; font-family:Arial, sans-serif; border:1px solid #000; background:white; color:black; box-sizing: border-box;">
-        {get_header_html(is_gst)}
-        <div style="text-align:center; padding:5px; background-color:#eee; border-bottom:1px solid #000; font-weight:bold; letter-spacing:1px;">{doc_title}</div>
-        <div style="display:flex; border-bottom:1px solid #000;">
-            <div style="width:60%; padding:10px; border-right:1px solid #000; font-size:13px; line-height:1.4;">{billed_to_header}</div>
-            <div style="width:40%; padding:10px; font-size:13px;">{right_header}</div>
+    <html>
+    <head>
+        <title>Invoice {data['inv']}</title>
+        <style>
+            @page {{ size: A4; margin: 0; }}
+            body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; }}
+            @media print {{
+                .no-print {{ display: none !important; }}
+                body {{ -webkit-print-color-adjust: exact; }}
+            }}
+            .print-btn {{
+                background-color: #b30000; color: white; padding: 12px 24px; 
+                font-size: 16px; border: none; border-radius: 4px; cursor: pointer;
+                margin-bottom: 10px;
+            }}
+            .print-btn:hover {{ background-color: #800000; }}
+            .button-container {{
+                text-align: center; padding: 20px; background-color: #f8f9fa;
+                border-bottom: 1px solid #ddd; margin-bottom: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="button-container no-print">
+            <button class="print-btn" onclick="window.print()">🖨️ CLICK HERE TO PRINT INVOICE</button>
+            <div style="font-size:12px; color:#555; margin-top:5px;">(Use this button instead of Ctrl+P to print only the bill)</div>
         </div>
-        <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
-            <thead><tr><th style="{style_th} width:5%;">Sr.</th><th style="{style_th} width:35%;">Description</th><th style="{style_th}">Code</th>{hsn_header}<th style="{style_th}">Qty</th><th style="{style_th}">Rate</th><th style="{style_th}">Disc</th>{gst_headers}{last_col_header}</tr></thead>
-            <tbody>{rows}</tbody>
-            <tfoot>{gst_section}<tr style="background-color:#eee; border-top:1px solid #000; border-bottom:1px solid #000;"><td colspan="{10 if is_gst else 6}" style="text-align:right; padding:8px; font-size:14px; border-right:1px solid #000;"><b>GRAND TOTAL:</b></td><td style="padding:8px; font-size:15px; font-weight:bold;">₹ {total:,.2f}</td></tr></tfoot>
-        </table>
-        <div style="padding:10px; border-bottom:1px solid #000; font-size:13px;"><b>Amount in Words:</b> {amt_words}</div>
-        <div style="display:flex; border-bottom:1px solid #000; text-align:center; font-size:13px;">
-            <div style="width:33%; padding:8px; border-right:1px solid #000;">Grand Total<br><b>₹ {total:,.2f}</b></div>
-            <div style="width:33%; padding:8px; border-right:1px solid #000;">Paid Amount<br><b style="color:green;">₹ {safe_float(data.get('paid',0)):,.2f}</b></div>
-            <div style="width:33%; padding:8px;">Balance Due<br><b style="color:red;">₹ {safe_float(data.get('bal',0)):,.2f}</b></div>
-        </div>
-        <div style="display:flex; font-size:11px;">
-            <div style="width:65%; padding:10px; border-right:1px solid #000;">
-                <b>TERMS & CONDITIONS:</b><ol style="margin:5px 0 0 15px; padding:0;">{terms_html}</ol>{bank_html}
+
+        <div style="width:210mm; min-height:297mm; margin:auto; font-family:Arial, sans-serif; border:1px solid #000; background:white; color:black; box-sizing: border-box;">
+            {get_header_html(is_gst)}
+            <div style="text-align:center; padding:5px; background-color:#eee; border-bottom:1px solid #000; font-weight:bold; letter-spacing:1px;">{doc_title}</div>
+            <div style="display:flex; border-bottom:1px solid #000;">
+                <div style="width:60%; padding:10px; border-right:1px solid #000; font-size:13px; line-height:1.4;">{billed_to_header}</div>
+                <div style="width:40%; padding:10px; font-size:13px;">{right_header}</div>
             </div>
-            <div style="width:35%; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
-                <b>For SUMEET ENTERPRISES</b><br><br><br><div style="border-top:1px dashed #000; width:80%; margin:0 auto;">Authorised Signatory</div>
+            <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
+                <thead><tr><th style="{style_th} width:5%;">Sr.</th><th style="{style_th} width:35%;">Description</th><th style="{style_th}">Code</th>{hsn_header}<th style="{style_th}">Qty</th><th style="{style_th}">Rate</th><th style="{style_th}">Disc</th>{gst_headers}{last_col_header}</tr></thead>
+                <tbody>{rows}</tbody>
+                <tfoot>{gst_section}<tr style="background-color:#eee; border-top:1px solid #000; border-bottom:1px solid #000;"><td colspan="{10 if is_gst else 6}" style="text-align:right; padding:8px; font-size:14px; border-right:1px solid #000;"><b>GRAND TOTAL:</b></td><td style="padding:8px; font-size:15px; font-weight:bold;">₹ {total:,.2f}</td></tr></tfoot>
+            </table>
+            <div style="padding:10px; border-bottom:1px solid #000; font-size:13px;"><b>Amount in Words:</b> {amt_words}</div>
+            <div style="display:flex; border-bottom:1px solid #000; text-align:center; font-size:13px;">
+                <div style="width:33%; padding:8px; border-right:1px solid #000;">Grand Total<br><b>₹ {total:,.2f}</b></div>
+                <div style="width:33%; padding:8px; border-right:1px solid #000;">Paid Amount<br><b style="color:green;">₹ {safe_float(data.get('paid',0)):,.2f}</b></div>
+                <div style="width:33%; padding:8px;">Balance Due<br><b style="color:red;">₹ {safe_float(data.get('bal',0)):,.2f}</b></div>
             </div>
+            <div style="display:flex; font-size:11px;">
+                <div style="width:65%; padding:10px; border-right:1px solid #000;">
+                    <b>TERMS & CONDITIONS:</b><ol style="margin:5px 0 0 15px; padding:0;">{terms_html}</ol>{bank_html}
+                </div>
+                <div style="width:35%; padding:10px; text-align:center; display:flex; flex-direction:column; justify-content:space-between;">
+                    <b>For SUMEET ENTERPRISES</b><br><br><br><div style="border-top:1px dashed #000; width:80%; margin:0 auto;">Authorised Signatory</div>
+                </div>
+            </div>
+            <div style="text-align:center; padding:10px; border-top:1px solid #000; font-style:italic; font-size:12px;">*** Thank You - Visit Again ***<br><br></div>
         </div>
-        <div style="text-align:center; padding:10px; border-top:1px solid #000; font-style:italic; font-size:12px;">*** Thank You - Visit Again ***<br><br></div>
-    </div>
+    </body>
+    </html>
     """
     components.html(html, height=1150, scrolling=True)
-
-def render_receipt(data):
+        def render_receipt(data):
     html = f"""
     <div style="width:210mm; padding:30px; margin:auto; font-family:Helvetica, Arial, sans-serif; border:1px solid #ddd; background:white; color:black;">
         {get_header_html(False)}
@@ -571,7 +607,6 @@ elif menu == "Sales":
                     if b_type == "GST":
                         final_bill_amount = gt_taxable * 1.18
                     
-                    # Determine final paid amount based on split or single
                     final_paid = split_final if use_split else paid_val
                     
                     d = datetime.now().strftime("%Y-%m-%d")
@@ -725,24 +760,10 @@ elif menu == "Purchase":
         
         if not df_p.empty:
             st.divider()
-            # UNIQUE ID LOGIC FOR DELETION
-            # We create a display string that includes Code + Date + Row Index (implicitly via list index)
-            # Since we can't easily get row ID from GSheets without API call, we rely on finding unique row content.
-            # Best approach: Add a temporary 'Unique_ID' to the dataframe for selection.
-            
-            # Since df_p is raw data, we can use it.
-            # We will use: "Row {i+2}: {Date} | {Code}" (Row i+2 because header is 1, and 0-index)
-            
-            # Create a list of tuples (Display String, Row Index)
-            # Note: Gspread delete_rows takes 1-based index. 
-            # If sheet has header (row 1), data starts at row 2.
-            # df index 0 is row 2.
-            
             del_options = [f"Row {i+2} | {r['Date']} | {r['NSP Code']}" for i, r in df_p.iterrows()]
             sel_del_str = st.selectbox("Select Entry to Delete", del_options)
             
             if st.button("🗑️ Delete Selected Entry"):
-                # Extract Row Index from string
                 row_idx_to_delete = int(sel_del_str.split("|")[0].replace("Row", "").strip())
                 if delete_entry_by_row("Purchase", row_idx_to_delete):
                     st.success("Deleted!"); st.rerun()
@@ -889,12 +910,4 @@ elif menu == "Products":
 elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
-    render_filtered_table(df, "logs")
-
-
-
-
-
-
-
-
+    render_filtered_table(df, "logs") 
