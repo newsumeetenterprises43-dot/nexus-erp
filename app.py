@@ -334,7 +334,7 @@ def get_header_html(is_gst):
         {f'<p style="margin:4px; font-size:12px;"><b>GSTIN:</b> 27AEGPC7645R1ZV</p>' if is_gst else ''}
     </div>
     """
-
+    
 def render_invoice(data, bill_type="Non-GST"):
     rows = ""
     total = 0; gst_tot = 0
@@ -451,7 +451,7 @@ def render_invoice(data, bill_type="Non-GST"):
     </html>
     """
     components.html(html, height=1150, scrolling=True)
-        def render_receipt(data):
+def render_receipt(data):
     html = f"""
     <div style="width:210mm; padding:30px; margin:auto; font-family:Helvetica, Arial, sans-serif; border:1px solid #ddd; background:white; color:black;">
         {get_header_html(False)}
@@ -911,3 +911,4 @@ elif menu == "Logs":
     st.title("📜 Logs")
     df = load_data("Logs")
     render_filtered_table(df, "logs") 
+
